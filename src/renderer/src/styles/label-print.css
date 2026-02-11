@@ -1,0 +1,239 @@
+/* ==============================
+   打印专用样式
+   ============================== */
+
+@media print {
+  /* 隐藏除标签外的所有内容 */
+  body * {
+    visibility: hidden;
+  }
+
+  .print-area,
+  .print-area * {
+    visibility: visible;
+  }
+
+  .print-area {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+  }
+
+  /* 去除页面边距 */
+  @page {
+    margin: 0;
+    padding: 0;
+  }
+
+  /* 每个标签一页 */
+  .label-page-break {
+    page-break-after: always;
+  }
+
+  .label-page-break:last-child {
+    page-break-after: auto;
+  }
+}
+
+/* ==============================
+   小标签样式 (袋子用) - 约 50x40mm
+   ============================== */
+
+.label-small {
+  width: 50mm;
+  height: 40mm;
+  padding: 1.5mm;
+  border: 0.3mm solid #000;
+  font-family: 'Microsoft YaHei', 'SimHei', sans-serif;
+  font-weight: bold;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: #fff;
+}
+
+.label-small .label-company {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 1mm;
+  font-size: 8pt;
+  font-weight: bold;
+  border-bottom: 0.3mm solid #000;
+  padding-bottom: 0.5mm;
+  margin-bottom: 0.5mm;
+}
+
+.label-small .label-logo {
+  height: 4mm;
+  width: auto;
+  object-fit: contain;
+}
+
+.label-small .label-content {
+  flex: 1;
+  display: flex;
+  gap: 1mm;
+}
+
+.label-small .label-left {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 1mm;
+}
+
+.label-small .label-row {
+  font-size: 7pt;
+  font-weight: bold;
+  padding: 0 0.5mm;
+  line-height: 1.4;
+  display: flex;
+}
+
+.label-small .label-field {
+  white-space: nowrap;
+  margin-right: 1.5mm;
+}
+
+.label-small .label-date-value {
+  font-size: 6 pt;
+  white-space: nowrap;
+}
+
+.label-small .label-right {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: 18mm;
+  flex-shrink: 0;
+  gap: 1.2mm;
+}
+
+.label-small .label-stamp {
+  width: 14.4mm;
+  height: 14.4mm;
+  object-fit: contain;
+}
+
+.label-small .label-qrcode {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.label-small .label-qrcode img {
+  width: 14mm;
+  height: 14mm;
+}
+
+/* ==============================
+   大标签样式 (箱子用) - 约 100x70mm
+   ============================== */
+
+.label-large {
+  width: 100mm;
+  height: 70mm;
+  padding: 3mm;
+  border: 0.5mm solid #000;
+  font-family: 'Microsoft YaHei', 'SimHei', sans-serif;
+  font-weight: bold;
+  display: flex;
+  flex-direction: column;
+  background: #fff;
+}
+
+.label-large .label-title {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 2mm;
+  font-size: 12pt;
+  font-weight: bold;
+  border-bottom: 0.5mm solid #000;
+  padding-bottom: 2mm;
+  margin-bottom: 2mm;
+}
+
+.label-large .label-logo {
+  height: 8mm;
+  width: auto;
+  object-fit: contain;
+}
+
+.label-large .label-info {
+  flex: 1;
+  display: flex;
+  gap: 3mm;
+}
+
+.label-large .label-details {
+  flex: 1;
+}
+
+.label-large .label-row {
+  display: flex;
+  margin-bottom: 1.5mm;
+  font-size: 13.5pt;
+  line-height: 1.4;
+}
+
+.label-large .label-field {
+  font-weight: bold;
+  min-width: 33mm;
+  white-space: nowrap;
+}
+
+.label-large .label-value {
+  flex: 1;
+  word-break: break-all;
+}
+
+.label-large .label-right {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: 30mm;
+  flex-shrink: 0;
+  gap: 2.4mm;
+}
+
+.label-large .label-stamp {
+  width: 25.9mm;
+  height: 25.9mm;
+  object-fit: contain;
+}
+
+.label-large .label-qrcode {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.label-large .label-qrcode img {
+  max-width: 25mm;
+  max-height: 25mm;
+}
+
+
+/* ==============================
+   预览样式 (屏幕显示用)
+   ============================== */
+
+.label-preview-container {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  padding: 16px;
+  justify-content: center;
+}
+
+.label-preview-item {
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+  border-radius: 4px;
+  overflow: hidden;
+}
