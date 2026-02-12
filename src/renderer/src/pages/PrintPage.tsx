@@ -277,7 +277,8 @@ function PrintPage(): JSX.Element {
           <Card size="small" title="打印预览" style={{ flex: 1, overflow: 'auto' }}>
             <div className="print-area">
               <div className="label-preview-container">
-                {Array.from({ length: Math.min(printCount, 4) }, (_, i) => (
+                {/* 必须渲染全部 printCount 张，否则打印时只会输出前几张，其余页空白 */}
+                {Array.from({ length: printCount }, (_, i) => (
                   <div
                     key={i}
                     className={`label-preview-item ${i < printCount - 1 ? 'label-page-break' : ''}`}
@@ -289,18 +290,6 @@ function PrintPage(): JSX.Element {
                     )}
                   </div>
                 ))}
-                {printCount > 4 && (
-                  <div
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      color: '#999',
-                      fontSize: 14
-                    }}
-                  >
-                    ... 共 {printCount} 张
-                  </div>
-                )}
               </div>
             </div>
           </Card>

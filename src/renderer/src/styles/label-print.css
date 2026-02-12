@@ -13,11 +13,30 @@
     visibility: visible;
   }
 
+  /*
+   * 使用 fixed 确保相对于“打印页”定位，避免被 Ant Design Layout 等祖先的
+   * position:relative 限制，导致打印首屏空白。
+   */
   .print-area {
-    position: absolute;
-    left: 0;
-    top: 0;
-    width: 100%;
+    position: fixed !important;
+    left: 0 !important;
+    top: 0 !important;
+    right: 0 !important;
+    width: 100% !important;
+    overflow: visible !important;
+  }
+
+  .print-area .label-preview-container {
+    max-height: none !important;
+    overflow: visible !important;
+  }
+
+  /* 确保背景、边框在打印时可见 */
+  .print-area,
+  .print-area .label-small,
+  .print-area .label-large {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
   }
 
   /* 去除页面边距 */
@@ -33,6 +52,55 @@
 
   .label-page-break:last-child {
     page-break-after: auto;
+  }
+
+  /* 打印时取消标签最外侧的框线 */
+  .print-area .label-small,
+  .print-area .label-large {
+    border: none !important;
+  }
+
+  /*
+   * 文字与二维码同量喷墨：二维码是纯黑位图，文字用字体轮廓易偏淡。
+   * 通过描边 + 纯黑 + 可选微阴影，让文字在打印时也“喷够量”。
+   */
+  .print-area .label-small,
+  .print-area .label-large {
+    color: #000 !important;
+  }
+  .print-area .label-small *,
+  .print-area .label-large * {
+    color: inherit;
+  }
+  .print-area .label-small .label-row,
+  .print-area .label-small .label-company,
+  .print-area .label-small .label-field,
+  .print-area .label-small .label-date-value,
+  .print-area .label-large .label-row,
+  .print-area .label-large .label-title,
+  .print-area .label-large .label-field,
+  .print-area .label-large .label-value {
+    font-weight: 900 !important;
+    -webkit-text-stroke: 0.02em #000;
+    text-stroke: 0.02em #000;
+    text-rendering: geometricPrecision;
+    /* 微阴影增加打印时的着墨面积，使文字更接近二维码的实心感 */
+    text-shadow: 0 0 0.3px #000, 0 0 0.3px #000;
+  }
+
+  /*
+   * Logo、印章：只加深有颜色的部分，提高打印密度，不显示背景（透明区域保持透明）。
+   * filter 只作用于像素颜色，不改变 alpha，故不会出现背景。
+   */
+  .print-area .label-small .label-logo,
+  .print-area .label-small .label-stamp,
+  .print-area .label-large .label-logo,
+  .print-area .label-large .label-stamp {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+    background: none !important;
+    /* 提高对比度、降低亮度、略增饱和度，有颜色的部分更深更实、打印密度大 */
+    filter: contrast(1.4) brightness(0.78) saturate(1.2);
   }
 }
 
@@ -230,6 +298,9 @@
   gap: 16px;
   padding: 16px;
   justify-content: center;
+  /* 预览区域限制高度，避免打印张数多时页面过长；打印时由 @media print 覆盖 */
+  max-height: 60vh;
+  overflow-y: auto;
 }
 
 .label-preview-item {
