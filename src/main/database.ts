@@ -7,10 +7,13 @@ let db: Database.Database
 export interface Product {
   id?: number
   code: string
+  description: string
   name: string
   spec: string
-  surface_treatment: string
   grade: string
+  surface_treatment: string
+  material: string
+  special_note: string
   created_at?: string
   updated_at?: string
 }
@@ -41,12 +44,18 @@ export function initDatabase(): void {
     CREATE INDEX IF NOT EXISTS idx_products_barcode ON products(barcode);
   `)
 
-  // 兼容旧数据库：如果 grade 列不存在则添加
-  try {
-    db.prepare('SELECT grade FROM products LIMIT 1').get()
-  } catch {
-    db.exec('ALTER TABLE products ADD COLUMN grade TEXT DEFAULT ""')
+  // 兼容旧数据库：自动添加缺失的列
+  const addColumnIfMissing = (col: string): void => {
+    try {
+      db.prepare(`SELECT ${col} FROM products LIMIT 1`).get()
+    } catch {
+      db.exec(`ALTER TABLE products ADD COLUMN ${col} TEXT DEFAULT ''`)
+    }
   }
+  addColumnIfMissing('grade')
+  addColumnIfMissing('description')
+  addColumnIfMissing('material')
+  addColumnIfMissing('special_note')
 
   // 创建库存表
   db.exec(`
@@ -81,12 +90,13 @@ export function getDatabase(): Database.Database {
 export function searchProducts(query: string): Product[] {
   const stmt = db.prepare(`
     SELECT * FROM products
-    WHERE code LIKE ? OR name LIKE ? OR spec LIKE ? OR surface_treatment LIKE ? OR grade LIKE ?
+    WHERE code LIKE ? OR description LIKE ? OR name LIKE ? OR spec LIKE ?
+      OR grade LIKE ? OR surface_treatment LIKE ? OR material LIKE ? OR special_note LIKE ?
     ORDER BY updated_at DESC
     LIMIT 100
   `)
   const pattern = `%${query}%`
-  return stmt.all(pattern, pattern, pattern, pattern, pattern) as Product[]
+  return stmt.all(pattern, pattern, pattern, pattern, pattern, pattern, pattern, pattern) as Product[]
 }
 
 /** 获取所有物品 */
@@ -104,15 +114,18 @@ export function getProductById(id: number): Product | undefined {
 /** 创建物品 */
 export function createProduct(product: Omit<Product, 'id' | 'created_at' | 'updated_at'>): Product {
   const stmt = db.prepare(`
-    INSERT INTO products (code, name, spec, surface_treatment, grade)
-    VALUES (?, ?, ?, ?, ?)
+    INSERT INTO products (code, description, name, spec, grade, surface_treatment, material, special_note)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
   `)
   const result = stmt.run(
     product.code,
+    product.description || '',
     product.name,
     product.spec || '',
+    product.grade || '',
     product.surface_treatment || '',
-    product.grade || ''
+    product.material || '',
+    product.special_note || ''
   )
   return getProductById(result.lastInsertRowid as number)!
 }
@@ -124,25 +137,57 @@ export function updateProduct(
 ): Product | undefined {
   const stmt = db.prepare(`
     UPDATE products
-    SET code = ?, name = ?, spec = ?, surface_treatment = ?, grade = ?, updated_at = CURRENT_TIMESTAMP
+    SET code = ?, description = ?, name = ?, spec = ?, grade = ?,
+        surface_treatment = ?, material = ?, special_note = ?, updated_at = CURRENT_TIMESTAMP
     WHERE id = ?
   `)
   stmt.run(
     product.code,
+    product.description || '',
     product.name,
     product.spec || '',
-    product.surface_treatment || '',
     product.grade || '',
+    product.surface_treatment || '',
+    product.material || '',
+    product.special_note || '',
     id
   )
   return getProductById(id)
 }
 
-/** 删除物品 */
+/** 删除物品（同时清理关联的库存和出入库记录） */
 export function deleteProduct(id: number): boolean {
-  const stmt = db.prepare('DELETE FROM products WHERE id = ?')
-  const result = stmt.run(id)
-  return result.changes > 0
+  const txn = db.transaction(() => {
+    db.prepare('DELETE FROM inventory_logs WHERE product_id = ?').run(id)
+    db.prepare('DELETE FROM inventory WHERE product_id = ?').run(id)
+    db.prepare('DELETE FROM products WHERE id = ?').run(id)
+  })
+  txn()
+  return true
+}
+
+/** 批量删除物品 */
+export function deleteProducts(ids: number[]): number {
+  const txn = db.transaction(() => {
+    for (const id of ids) {
+      db.prepare('DELETE FROM inventory_logs WHERE product_id = ?').run(id)
+      db.prepare('DELETE FROM inventory WHERE product_id = ?').run(id)
+      db.prepare('DELETE FROM products WHERE id = ?').run(id)
+    }
+  })
+  txn()
+  return ids.length
+}
+
+/** 清空所有物品数据 */
+export function deleteAllProducts(): number {
+  const txn = db.transaction(() => {
+    db.prepare('DELETE FROM inventory_logs').run()
+    db.prepare('DELETE FROM inventory').run()
+    const result = db.prepare('DELETE FROM products').run()
+    return result.changes
+  })
+  return txn() as number
 }
 
 /** 批量导入物品 */
@@ -150,8 +195,8 @@ export function importProducts(
   products: Omit<Product, 'id' | 'created_at' | 'updated_at'>[]
 ): { success: number; failed: number; errors: string[] } {
   const insertStmt = db.prepare(`
-    INSERT OR REPLACE INTO products (code, name, spec, surface_treatment, grade)
-    VALUES (?, ?, ?, ?, ?)
+    INSERT OR REPLACE INTO products (code, description, name, spec, grade, surface_treatment, material, special_note)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
   `)
 
   let success = 0
@@ -169,10 +214,13 @@ export function importProducts(
           }
           insertStmt.run(
             item.code,
+            item.description || '',
             item.name,
             item.spec || '',
+            item.grade || '',
             item.surface_treatment || '',
-            item.grade || ''
+            item.material || '',
+            item.special_note || ''
           )
           success++
         } catch (err) {
@@ -224,16 +272,20 @@ export interface InventoryWithProduct {
   quantity: number
   updated_at: string
   code: string
+  description: string
   name: string
   spec: string
-  surface_treatment: string
   grade: string
+  surface_treatment: string
+  material: string
+  special_note: string
 }
 
 export function getAllInventory(): InventoryWithProduct[] {
   const stmt = db.prepare(`
     SELECT i.product_id, i.quantity, i.updated_at,
-           p.code, p.name, p.spec, p.surface_treatment, p.grade
+           p.code, p.description, p.name, p.spec, p.grade,
+           p.surface_treatment, p.material, p.special_note
     FROM inventory i
     LEFT JOIN products p ON i.product_id = p.id
     ORDER BY i.updated_at DESC

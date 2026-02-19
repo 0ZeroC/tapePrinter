@@ -42,8 +42,8 @@ function LabelSmall({ product, quantity, unit }: LabelSmallProps): JSX.Element {
         <div className="label-left">
           <div className="label-row"><span className="label-field">物品名称 :</span> {product.name}</div>
           <div className="label-row"><span className="label-field">规　　格 :</span> {product.spec || '-'}</div>
-          <div className="label-row"><span className="label-field">表面处理 :</span> {product.surface_treatment || '-'}</div>
           <div className="label-row"><span className="label-field">等　　级 :</span> {product.grade || '-'}</div>
+          <div className="label-row"><span className="label-field">表面处理 :</span> {product.surface_treatment || '-'}</div>
           <div className="label-row"><span className="label-field">数　　量 :</span> {quantity ? `${quantity} ${unit || '只'}` : '-'}</div>
           <div className="label-row"><span className="label-field">日　　期 :</span> <span className="label-date-value">{today}</span></div>
         </div>

@@ -18,10 +18,13 @@ function ProductForm({ visible, product, onSuccess, onCancel }: ProductFormProps
       if (product) {
         form.setFieldsValue({
           code: product.code,
+          description: product.description,
           name: product.name,
           spec: product.spec,
+          grade: product.grade,
           surface_treatment: product.surface_treatment,
-          grade: product.grade
+          material: product.material,
+          special_note: product.special_note
         })
       } else {
         form.resetFields()
@@ -70,14 +73,22 @@ function ProductForm({ visible, product, onSuccess, onCancel }: ProductFormProps
         style={{ marginTop: 16 }}
       >
         <Form.Item
-          label="物品编码"
+          label="物料号"
           name="code"
           rules={[
-            { required: true, message: '请输入物品编码' },
-            { max: 50, message: '编码不能超过50个字符' }
+            { required: true, message: '请输入物料号' },
+            { max: 50, message: '物料号不能超过50个字符' }
           ]}
         >
-          <Input placeholder="请输入物品编码（唯一标识）" />
+          <Input placeholder="请输入物料号（唯一标识）" />
+        </Form.Item>
+
+        <Form.Item
+          label="物料描述"
+          name="description"
+          rules={[{ max: 500, message: '物料描述不能超过500个字符' }]}
+        >
+          <Input placeholder="请输入物料描述" />
         </Form.Item>
 
         <Form.Item
@@ -96,7 +107,15 @@ function ProductForm({ visible, product, onSuccess, onCancel }: ProductFormProps
           name="spec"
           rules={[{ max: 200, message: '规格不能超过200个字符' }]}
         >
-          <Input placeholder="请输入物品规格" />
+          <Input placeholder="请输入规格" />
+        </Form.Item>
+
+        <Form.Item
+          label="等级"
+          name="grade"
+          rules={[{ max: 50, message: '等级不能超过50个字符' }]}
+        >
+          <Input placeholder="请输入等级" />
         </Form.Item>
 
         <Form.Item
@@ -108,11 +127,19 @@ function ProductForm({ visible, product, onSuccess, onCancel }: ProductFormProps
         </Form.Item>
 
         <Form.Item
-          label="等级"
-          name="grade"
-          rules={[{ max: 50, message: '等级不能超过50个字符' }]}
+          label="材质"
+          name="material"
+          rules={[{ max: 100, message: '材质不能超过100个字符' }]}
         >
-          <Input placeholder="请输入等级" />
+          <Input placeholder="请输入材质" />
+        </Form.Item>
+
+        <Form.Item
+          label="特殊备注"
+          name="special_note"
+          rules={[{ max: 500, message: '特殊备注不能超过500个字符' }]}
+        >
+          <Input placeholder="请输入特殊备注" />
         </Form.Item>
       </Form>
     </Modal>

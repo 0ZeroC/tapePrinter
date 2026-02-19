@@ -2,10 +2,13 @@ import { contextBridge, ipcRenderer } from 'electron'
 
 export interface ProductData {
   code: string
+  description: string
   name: string
   spec: string
-  surface_treatment: string
   grade: string
+  surface_treatment: string
+  material: string
+  special_note: string
 }
 
 export interface ApiResponse<T = unknown> {
@@ -33,6 +36,14 @@ const api = {
   // 删除物品
   deleteProduct: (id: number): Promise<ApiResponse> =>
     ipcRenderer.invoke('products:delete', id),
+
+  // 批量删除物品
+  deleteProducts: (ids: number[]): Promise<ApiResponse> =>
+    ipcRenderer.invoke('products:deleteBatch', ids),
+
+  // 清空所有物品
+  deleteAllProducts: (): Promise<ApiResponse> =>
+    ipcRenderer.invoke('products:deleteAll'),
 
   // 批量导入物品
   importProducts: (products: ProductData[]): Promise<ApiResponse> =>

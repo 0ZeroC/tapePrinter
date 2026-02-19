@@ -57,10 +57,13 @@ function StockPage(): JSX.Element {
     const filtered = list.filter(
       (item) =>
         item.code?.toLowerCase().includes(kw) ||
+        item.description?.toLowerCase().includes(kw) ||
         item.name?.toLowerCase().includes(kw) ||
         item.spec?.toLowerCase().includes(kw) ||
+        item.grade?.toLowerCase().includes(kw) ||
         item.surface_treatment?.toLowerCase().includes(kw) ||
-        item.grade?.toLowerCase().includes(kw)
+        item.material?.toLowerCase().includes(kw) ||
+        item.special_note?.toLowerCase().includes(kw)
     )
     setFilteredList(filtered)
   }
@@ -103,11 +106,11 @@ function StockPage(): JSX.Element {
   }, [editItem, newQuantity, remark, loadInventory])
 
   const columns = [
-    { title: '物品编码', dataIndex: 'code', key: 'code', width: 120 },
-    { title: '物品名称', dataIndex: 'name', key: 'name', width: 160 },
-    { title: '规格', dataIndex: 'spec', key: 'spec', width: 140 },
-    { title: '表面处理', dataIndex: 'surface_treatment', key: 'surface_treatment', width: 120 },
-    { title: '等级', dataIndex: 'grade', key: 'grade', width: 80 },
+    { title: '物料号', dataIndex: 'code', key: 'code', width: 120 },
+    { title: '物品名称', dataIndex: 'name', key: 'name', width: 140 },
+    { title: '规格', dataIndex: 'spec', key: 'spec', width: 120 },
+    { title: '等级', dataIndex: 'grade', key: 'grade', width: 70 },
+    { title: '表面处理', dataIndex: 'surface_treatment', key: 'surface_treatment', width: 100 },
     {
       title: '当前库存',
       dataIndex: 'quantity',
@@ -188,10 +191,11 @@ function StockPage(): JSX.Element {
         {editItem && (
           <div>
             <Descriptions column={2} size="small" bordered style={{ marginBottom: 16 }}>
-              <Descriptions.Item label="物品编码">{editItem.code}</Descriptions.Item>
+              <Descriptions.Item label="物料号">{editItem.code}</Descriptions.Item>
               <Descriptions.Item label="物品名称">{editItem.name}</Descriptions.Item>
               <Descriptions.Item label="规格">{editItem.spec || '-'}</Descriptions.Item>
               <Descriptions.Item label="等级">{editItem.grade || '-'}</Descriptions.Item>
+              <Descriptions.Item label="表面处理">{editItem.surface_treatment || '-'}</Descriptions.Item>
               <Descriptions.Item label="当前库存" span={2}>
                 <Tag color="blue" style={{ fontSize: 16, padding: '2px 12px' }}>
                   {editItem.quantity}

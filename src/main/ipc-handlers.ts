@@ -5,6 +5,8 @@ import {
   createProduct,
   updateProduct,
   deleteProduct,
+  deleteProducts,
+  deleteAllProducts,
   importProducts,
   stockIn,
   stockOut,
@@ -65,6 +67,26 @@ export function registerIpcHandlers(): void {
     try {
       const result = deleteProduct(id)
       return { success: true, data: result }
+    } catch (err) {
+      return { success: false, error: (err as Error).message }
+    }
+  })
+
+  // 批量删除物品
+  ipcMain.handle('products:deleteBatch', (_event, ids: number[]) => {
+    try {
+      const count = deleteProducts(ids)
+      return { success: true, data: count }
+    } catch (err) {
+      return { success: false, error: (err as Error).message }
+    }
+  })
+
+  // 清空所有物品
+  ipcMain.handle('products:deleteAll', () => {
+    try {
+      const count = deleteAllProducts()
+      return { success: true, data: count }
     } catch (err) {
       return { success: false, error: (err as Error).message }
     }

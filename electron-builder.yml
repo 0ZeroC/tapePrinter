@@ -1,5 +1,8 @@
 appId: com.tapePrinter.app
 productName: 标签打印软件
+executableName: TapePrinter
+electronDownload:
+  mirror: https://npmmirror.com/mirrors/electron/
 directories:
   buildResources: build
 files:
@@ -12,9 +15,6 @@ asarUnpack:
   - resources/**
   - node_modules/better-sqlite3/**
 mac:
-  entitlementsInherit: build/entitlements.mac.plist
-  extendInfo:
-    - NSDocumentsFolderUsageDescription: Application needs access to Documents folder.
   notarize: false
   target:
     - dmg

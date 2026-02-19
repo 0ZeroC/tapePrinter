@@ -1,9 +1,12 @@
 export interface ProductData {
   code: string
+  description: string
   name: string
   spec: string
-  surface_treatment: string
   grade: string
+  surface_treatment: string
+  material: string
+  special_note: string
 }
 
 export interface Product extends ProductData {
@@ -41,10 +44,13 @@ export interface InventoryWithProduct {
   quantity: number
   updated_at: string
   code: string
+  description: string
   name: string
   spec: string
-  surface_treatment: string
   grade: string
+  surface_treatment: string
+  material: string
+  special_note: string
 }
 
 declare global {
@@ -55,6 +61,8 @@ declare global {
       createProduct: (product: ProductData) => Promise<ApiResponse<Product>>
       updateProduct: (id: number, product: ProductData) => Promise<ApiResponse<Product>>
       deleteProduct: (id: number) => Promise<ApiResponse<boolean>>
+      deleteProducts: (ids: number[]) => Promise<ApiResponse<number>>
+      deleteAllProducts: () => Promise<ApiResponse<number>>
       importProducts: (products: ProductData[]) => Promise<ApiResponse<ImportResult>>
       openFileDialog: () => Promise<ApiResponse<string | null>>
       readFile: (filePath: string) => Promise<ApiResponse<Buffer>>

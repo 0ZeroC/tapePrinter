@@ -67,34 +67,35 @@ function ImportModal({ visible, onSuccess, onCancel }: ImportModalProps): JSX.El
       // 映射字段名
       const mappedData: PreviewRow[] = jsonData.map((row, index) => {
         const code =
-          row['物品编码'] || row['编码'] || row['code'] || row['Code'] || row['CODE'] || ''
+          row['物料号'] || row['物品编码'] || row['编码'] || row['code'] || row['Code'] || ''
+        const description =
+          row['物料描述'] || row['描述'] || row['description'] || row['Description'] || ''
         const name =
-          row['物品名称'] || row['名称'] || row['name'] || row['Name'] || row['NAME'] || ''
+          row['物品名称'] || row['名称'] || row['name'] || row['Name'] || ''
         const spec =
-          row['规格'] || row['物品规格'] || row['spec'] || row['Spec'] || row['SPEC'] || ''
-        const surface_treatment =
-          row['表面处理'] ||
-          row['surface_treatment'] ||
-          row['Surface Treatment'] ||
-          row['SURFACE_TREATMENT'] ||
-          ''
+          row['规格'] || row['物品规格'] || row['spec'] || row['Spec'] || ''
         const grade =
-          row['等级'] ||
-          row['grade'] ||
-          row['Grade'] ||
-          row['GRADE'] ||
-          ''
+          row['等级'] || row['grade'] || row['Grade'] || ''
+        const surface_treatment =
+          row['表面处理'] || row['surface_treatment'] || row['Surface Treatment'] || ''
+        const material =
+          row['材质'] || row['material'] || row['Material'] || ''
+        const special_note =
+          row['特殊备注'] || row['备注'] || row['special_note'] || row['Special Note'] || ''
 
         const valid = !!code && !!name
         return {
-          _rowIndex: index + 2, // Excel 行号（第1行是表头）
+          _rowIndex: index + 2,
           _valid: valid,
-          _error: !valid ? '编码或名称为空' : undefined,
+          _error: !valid ? '物料号或名称为空' : undefined,
           code: String(code).trim(),
+          description: String(description).trim(),
           name: String(name).trim(),
           spec: String(spec).trim(),
+          grade: String(grade).trim(),
           surface_treatment: String(surface_treatment).trim(),
-          grade: String(grade).trim()
+          material: String(material).trim(),
+          special_note: String(special_note).trim()
         }
       })
 
@@ -115,12 +116,15 @@ function ImportModal({ visible, onSuccess, onCancel }: ImportModalProps): JSX.El
 
     setImporting(true)
     try {
-      const products: ProductData[] = validData.map(({ code, name, spec, surface_treatment, grade }) => ({
+      const products: ProductData[] = validData.map(({ code, description, name, spec, grade, surface_treatment, material, special_note }) => ({
         code,
+        description,
         name,
         spec,
+        grade,
         surface_treatment,
-        grade
+        material,
+        special_note
       }))
 
       const result = await window.api.importProducts(products)
@@ -170,11 +174,14 @@ function ImportModal({ visible, onSuccess, onCancel }: ImportModalProps): JSX.El
           <Tag color="error">{record._error || '无效'}</Tag>
         )
     },
-    { title: '物品编码', dataIndex: 'code', key: 'code', width: 120 },
-    { title: '物品名称', dataIndex: 'name', key: 'name', width: 150 },
-    { title: '规格', dataIndex: 'spec', key: 'spec', width: 130 },
-    { title: '表面处理', dataIndex: 'surface_treatment', key: 'surface_treatment', width: 110 },
-    { title: '等级', dataIndex: 'grade', key: 'grade', width: 80 }
+    { title: '物料号', dataIndex: 'code', key: 'code', width: 120 },
+    { title: '物料描述', dataIndex: 'description', key: 'description', width: 200, ellipsis: true },
+    { title: '物品名称', dataIndex: 'name', key: 'name', width: 130 },
+    { title: '规格', dataIndex: 'spec', key: 'spec', width: 110 },
+    { title: '等级', dataIndex: 'grade', key: 'grade', width: 60 },
+    { title: '表面处理', dataIndex: 'surface_treatment', key: 'surface_treatment', width: 90 },
+    { title: '材质', dataIndex: 'material', key: 'material', width: 80 },
+    { title: '特殊备注', dataIndex: 'special_note', key: 'special_note', width: 120, ellipsis: true }
   ]
 
   const validCount = previewData.filter((r) => r._valid).length
@@ -250,7 +257,10 @@ function ImportModal({ visible, onSuccess, onCancel }: ImportModalProps): JSX.El
               <div>
                 <p>第一行为表头，支持以下列名（顺序不限）：</p>
                 <p>
-                  <Tag>物品编码</Tag> / <Tag>编码</Tag> / <Tag>code</Tag> &nbsp;（必填）
+                  <Tag>物料号</Tag> / <Tag>物品编码</Tag> / <Tag>code</Tag> &nbsp;（必填）
+                </p>
+                <p>
+                  <Tag>物料描述</Tag> / <Tag>描述</Tag> &nbsp;（选填）
                 </p>
                 <p>
                   <Tag>物品名称</Tag> / <Tag>名称</Tag> / <Tag>name</Tag> &nbsp;（必填）
@@ -259,10 +269,16 @@ function ImportModal({ visible, onSuccess, onCancel }: ImportModalProps): JSX.El
                   <Tag>规格</Tag> / <Tag>spec</Tag> &nbsp;（选填）
                 </p>
                 <p>
-                  <Tag>表面处理</Tag> / <Tag>surface_treatment</Tag> &nbsp;（选填）
+                  <Tag>等级</Tag> / <Tag>grade</Tag> &nbsp;（选填）
                 </p>
                 <p>
-                  <Tag>等级</Tag> / <Tag>grade</Tag> &nbsp;（选填）
+                  <Tag>表面处理</Tag> &nbsp;（选填）
+                </p>
+                <p>
+                  <Tag>材质</Tag> &nbsp;（选填）
+                </p>
+                <p>
+                  <Tag>特殊备注</Tag> / <Tag>备注</Tag> &nbsp;（选填）
                 </p>
               </div>
             }

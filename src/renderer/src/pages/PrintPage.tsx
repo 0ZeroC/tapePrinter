@@ -88,36 +88,11 @@ function PrintPage(): JSX.Element {
 
   // 搜索结果表格列定义
   const columns = [
-    {
-      title: '物品编码',
-      dataIndex: 'code',
-      key: 'code',
-      width: 120
-    },
-    {
-      title: '物品名称',
-      dataIndex: 'name',
-      key: 'name',
-      width: 160
-    },
-    {
-      title: '规格',
-      dataIndex: 'spec',
-      key: 'spec',
-      width: 140
-    },
-    {
-      title: '表面处理',
-      dataIndex: 'surface_treatment',
-      key: 'surface_treatment',
-      width: 120
-    },
-    {
-      title: '等级',
-      dataIndex: 'grade',
-      key: 'grade',
-      width: 80
-    },
+    { title: '物料号', dataIndex: 'code', key: 'code', width: 120 },
+    { title: '物品名称', dataIndex: 'name', key: 'name', width: 140 },
+    { title: '规格', dataIndex: 'spec', key: 'spec', width: 120 },
+    { title: '等级', dataIndex: 'grade', key: 'grade', width: 70 },
+    { title: '表面处理', dataIndex: 'surface_treatment', key: 'surface_treatment', width: 100 },
     {
       title: '操作',
       key: 'action',
@@ -207,13 +182,19 @@ function PrintPage(): JSX.Element {
                 {selectedProduct.spec || '-'}
               </div>
               <div>
-                <span style={{ color: '#666' }}>表面处理：</span>
-                {selectedProduct.surface_treatment || '-'}
-              </div>
-              <div>
                 <span style={{ color: '#666' }}>等级：</span>
                 {selectedProduct.grade || '-'}
               </div>
+              <div>
+                <span style={{ color: '#666' }}>表面处理：</span>
+                {selectedProduct.surface_treatment || '-'}
+              </div>
+              {selectedProduct.material && (
+                <div>
+                  <span style={{ color: '#666' }}>材质：</span>
+                  {selectedProduct.material}
+                </div>
+              )}
             </Space>
             <Divider style={{ margin: '12px 0' }} />
             <Space direction="vertical" size="middle" style={{ width: '100%' }}>

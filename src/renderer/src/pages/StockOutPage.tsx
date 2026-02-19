@@ -124,11 +124,11 @@ function StockOutPage(): JSX.Element {
 
   // 搜索结果列
   const searchColumns = [
-    { title: '编码', dataIndex: 'code', key: 'code', width: 120 },
-    { title: '名称', dataIndex: 'name', key: 'name', width: 160 },
-    { title: '规格', dataIndex: 'spec', key: 'spec', width: 140 },
-    { title: '表面处理', dataIndex: 'surface_treatment', key: 'surface_treatment', width: 120 },
-    { title: '等级', dataIndex: 'grade', key: 'grade', width: 80 },
+    { title: '物料号', dataIndex: 'code', key: 'code', width: 120 },
+    { title: '物品名称', dataIndex: 'name', key: 'name', width: 140 },
+    { title: '规格', dataIndex: 'spec', key: 'spec', width: 120 },
+    { title: '等级', dataIndex: 'grade', key: 'grade', width: 70 },
+    { title: '表面处理', dataIndex: 'surface_treatment', key: 'surface_treatment', width: 100 },
     {
       title: '操作',
       key: 'action',
@@ -243,13 +243,13 @@ function StockOutPage(): JSX.Element {
         {selectedProduct && (
           <div>
             <Descriptions column={2} size="small" bordered style={{ marginBottom: 16 }}>
-              <Descriptions.Item label="物品编码">{selectedProduct.code}</Descriptions.Item>
+              <Descriptions.Item label="物料号">{selectedProduct.code}</Descriptions.Item>
               <Descriptions.Item label="物品名称">{selectedProduct.name}</Descriptions.Item>
               <Descriptions.Item label="规格">{selectedProduct.spec || '-'}</Descriptions.Item>
+              <Descriptions.Item label="等级">{selectedProduct.grade || '-'}</Descriptions.Item>
               <Descriptions.Item label="表面处理">
                 {selectedProduct.surface_treatment || '-'}
               </Descriptions.Item>
-              <Descriptions.Item label="等级">{selectedProduct.grade || '-'}</Descriptions.Item>
               <Descriptions.Item label="当前库存">
                 <Tag color={currentStock > 0 ? 'blue' : 'red'}>{currentStock}</Tag>
               </Descriptions.Item>

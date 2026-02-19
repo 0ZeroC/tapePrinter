@@ -49,12 +49,12 @@ function LabelLarge({ product, quantity, unit }: LabelLargeProps): JSX.Element {
             <span className="label-value">{product.spec || '-'}</span>
           </div>
           <div className="label-row">
-            <span className="label-field">表面处理：</span>
-            <span className="label-value">{product.surface_treatment || '-'}</span>
-          </div>
-          <div className="label-row">
             <span className="label-field">等　　级：</span>
             <span className="label-value">{product.grade || '-'}</span>
+          </div>
+          <div className="label-row">
+            <span className="label-field">表面处理：</span>
+            <span className="label-value">{product.surface_treatment || '-'}</span>
           </div>
           {quantity && (
             <div className="label-row">
