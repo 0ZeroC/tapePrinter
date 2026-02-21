@@ -14,7 +14,7 @@
 
 | 层级 | 技术 |
 | --- | --- |
-| 框架 | Electron 40 + electron-vite 5 |
+| 框架 | Electron 22（兼容 Windows 7）+ electron-vite 5 |
 | 前端 | React 19 + TypeScript 5.9 |
 | UI 组件 | Ant Design 6 |
 | 数据库 | SQLite（better-sqlite3） |
@@ -30,7 +30,7 @@
 | 平台 | 安装包格式 | 说明 |
 | --- | --- | --- |
 | macOS | `.dmg` | 标准 macOS 磁盘映像 |
-| Windows | `.exe`（NSIS 安装器） | 支持自定义安装路径 |
+| Windows | `.exe`（NSIS 安装器） | 支持自定义安装路径，**兼容 Windows 7**（Electron 22） |
 | Linux | `.AppImage` | 免安装，双击即可运行 |
 
 > 注意：打包时默认为**当前操作系统**生成安装包。如需交叉编译（如在 Mac 上打 Windows 包），需要额外配置，详见下文。
@@ -75,7 +75,11 @@ npm install -g windows-build-tools
 
 或者手动安装 [Visual Studio Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/)，安装时勾选「使用 C++ 的桌面开发」工作负载。
 
-- **Python**（部分原生模块编译时需要，通常 `windows-build-tools` 会一并安装）
+- **Python 3**（编译 `better-sqlite3` 等原生模块时需要。若仅打包且不关心数据库功能，可在 `electron-builder.yml` 中保持 `npmRebuild: false` 跳过编译）
+
+#### 打包为 Windows 7 可用安装包
+
+当前项目已配置为 **Electron 22**（最后支持 Windows 7/8/8.1 的版本），直接执行 `npm run dist:win` 或 `npm run dist:win7` 即可生成兼容 Win7 的安装包，输出在 `dist/` 目录（如 `标签打印软件 Setup 1.0.0.exe`）。若需确保数据库功能在 Win7 上正常，请在本机安装 Python 与 Visual Studio Build Tools 后，将 `electron-builder.yml` 中的 `npmRebuild` 改为 `true` 或删除该配置，再执行 `npm install` 与 `npm run dist:win`。
 
 #### Linux 额外要求
 

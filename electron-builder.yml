@@ -1,6 +1,8 @@
 appId: com.tapePrinter.app
 productName: 标签打印软件
 executableName: TapePrinter
+# 无 Python 环境时可设为 false 以完成打包（若有 Python 建议保持默认以正确编译 better-sqlite3）
+npmRebuild: false
 electronDownload:
   mirror: https://npmmirror.com/mirrors/electron/
 directories:
@@ -21,9 +23,13 @@ mac:
 win:
   target:
     - nsis
+  # 不进行代码签名，避免在无管理员权限或无签名证书时解压 winCodeSign 失败
+  signAndEditExecutable: false
 nsis:
   oneClick: false
   allowToChangeInstallationDirectory: true
+  # 修复 Windows 7 上安装完成时安装程序崩溃的问题（安装仍会成功）
+  runAfterFinish: false
 linux:
   target:
     - AppImage
