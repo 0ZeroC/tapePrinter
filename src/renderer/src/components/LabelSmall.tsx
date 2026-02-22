@@ -1,6 +1,6 @@
 import { useEffect, useState, useMemo } from 'react'
 import QRCode from 'qrcode'
-import type { Product } from '../../../preload/index.d'
+import type { Product } from '../utils/api'
 import logoImg from '../assets/logo.png'
 import stampImg from '../assets/stamp.png'
 

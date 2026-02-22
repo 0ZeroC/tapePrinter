@@ -1,24 +1,30 @@
 import { useState, useRef } from 'react'
-import { Modal, Button, Table, Alert, Space, message, Steps, Typography, Tag, Upload } from 'antd'
-import { UploadOutlined, FileExcelOutlined, CheckCircleOutlined, InboxOutlined } from '@ant-design/icons'
+import { Modal, Button, Table, Alert, Space, message, Steps, Typography, Tag } from 'antd'
+import { UploadOutlined, FileExcelOutlined, CheckCircleOutlined } from '@ant-design/icons'
 import * as XLSX from 'xlsx'
-import { api, type ProductData } from '../utils/api'
+import { api } from '../utils/api'
 
 const { Text } = Typography
 
-interface ImportModalProps {
+interface ImportInventoryModalProps {
   visible: boolean
   onSuccess: () => void
   onCancel: () => void
 }
 
-interface PreviewRow extends ProductData {
+interface PreviewRow {
   _rowIndex: number
   _valid: boolean
   _error?: string
+  code: string
+  quantity: number
 }
 
-function ImportModal({ visible, onSuccess, onCancel }: ImportModalProps): JSX.Element {
+function ImportInventoryModal({
+  visible,
+  onSuccess,
+  onCancel
+}: ImportInventoryModalProps): JSX.Element {
   const [currentStep, setCurrentStep] = useState(0)
   const [fileName, setFileName] = useState('')
   const [previewData, setPreviewData] = useState<PreviewRow[]>([])
@@ -52,34 +58,24 @@ function ImportModal({ visible, onSuccess, onCancel }: ImportModalProps): JSX.El
       const mappedData: PreviewRow[] = jsonData.map((row, index) => {
         const code =
           row['物料号'] || row['物品编码'] || row['编码'] || row['code'] || row['Code'] || ''
-        const description =
-          row['物料描述'] || row['描述'] || row['description'] || row['Description'] || ''
-        const name =
-          row['物品名称'] || row['名称'] || row['name'] || row['Name'] || ''
-        const spec =
-          row['规格'] || row['物品规格'] || row['spec'] || row['Spec'] || ''
-        const grade =
-          row['等级'] || row['grade'] || row['Grade'] || ''
-        const surface_treatment =
-          row['表面处理'] || row['surface_treatment'] || row['Surface Treatment'] || ''
-        const material =
-          row['材质'] || row['material'] || row['Material'] || ''
-        const special_note =
-          row['特殊备注'] || row['备注'] || row['special_note'] || row['Special Note'] || ''
+        const qtyRaw =
+          row['库存数量'] || row['数量'] || row['库存'] || row['quantity'] || row['Quantity'] || ''
 
-        const valid = !!code && !!name
+        const qty = Number(qtyRaw)
+        const validCode = !!String(code).trim()
+        const validQty = String(qtyRaw).trim() !== '' && !isNaN(qty)
+        const valid = validCode && validQty
+
+        let error: string | undefined
+        if (!validCode) error = '物料号为空'
+        else if (!validQty) error = '数量无效'
+
         return {
           _rowIndex: index + 2,
           _valid: valid,
-          _error: !valid ? '物料号或名称为空' : undefined,
+          _error: error,
           code: String(code).trim(),
-          description: String(description).trim(),
-          name: String(name).trim(),
-          spec: String(spec).trim(),
-          grade: String(grade).trim(),
-          surface_treatment: String(surface_treatment).trim(),
-          material: String(material).trim(),
-          special_note: String(special_note).trim()
+          quantity: validQty ? qty : 0
         }
       })
 
@@ -117,25 +113,13 @@ function ImportModal({ visible, onSuccess, onCancel }: ImportModalProps): JSX.El
 
     setImporting(true)
     try {
-      const products: ProductData[] = validData.map(
-        ({ code, description, name, spec, grade, surface_treatment, material, special_note }) => ({
-          code,
-          description,
-          name,
-          spec,
-          grade,
-          surface_treatment,
-          material,
-          special_note
-        })
-      )
-
-      const result = await api.importProducts(products)
+      const items = validData.map(({ code, quantity }) => ({ code, quantity }))
+      const result = await api.importInventory(items)
       if (result.success && result.data) {
         setImportResult(result.data)
         setCurrentStep(2)
         if (result.data.success > 0) {
-          message.success(`成功导入 ${result.data.success} 条数据`)
+          message.success(`成功导入 ${result.data.success} 条库存数据`)
         }
       } else {
         message.error(result.error || '导入失败')
@@ -157,12 +141,12 @@ function ImportModal({ visible, onSuccess, onCancel }: ImportModalProps): JSX.El
   }
 
   const previewColumns = [
-    { title: '行号', dataIndex: '_rowIndex', key: '_rowIndex', width: 60 },
+    { title: '行号', dataIndex: '_rowIndex', key: '_rowIndex', width: 70 },
     {
       title: '状态',
       dataIndex: '_valid',
       key: '_valid',
-      width: 80,
+      width: 100,
       render: (valid: boolean, record: PreviewRow) =>
         valid ? (
           <Tag color="success">有效</Tag>
@@ -170,25 +154,18 @@ function ImportModal({ visible, onSuccess, onCancel }: ImportModalProps): JSX.El
           <Tag color="error">{record._error || '无效'}</Tag>
         )
     },
-    { title: '物料号', dataIndex: 'code', key: 'code', width: 120 },
+    { title: '物料号', dataIndex: 'code', key: 'code', width: 160 },
     {
-      title: '物料描述',
-      dataIndex: 'description',
-      key: 'description',
-      width: 200,
-      ellipsis: true
-    },
-    { title: '物品名称', dataIndex: 'name', key: 'name', width: 130 },
-    { title: '规格', dataIndex: 'spec', key: 'spec', width: 110 },
-    { title: '等级', dataIndex: 'grade', key: 'grade', width: 60 },
-    { title: '表面处理', dataIndex: 'surface_treatment', key: 'surface_treatment', width: 90 },
-    { title: '材质', dataIndex: 'material', key: 'material', width: 80 },
-    {
-      title: '特殊备注',
-      dataIndex: 'special_note',
-      key: 'special_note',
+      title: '库存数量',
+      dataIndex: 'quantity',
+      key: 'quantity',
       width: 120,
-      ellipsis: true
+      render: (val: number, record: PreviewRow) =>
+        record._valid ? (
+          <Tag color={val >= 0 ? 'blue' : 'red'}>{val}</Tag>
+        ) : (
+          <span style={{ color: '#ccc' }}>-</span>
+        )
     }
   ]
 
@@ -197,17 +174,22 @@ function ImportModal({ visible, onSuccess, onCancel }: ImportModalProps): JSX.El
 
   return (
     <Modal
-      title="导入 Excel 数据"
+      title="导入库存数据"
       open={visible}
       onCancel={handleClose}
-      width={900}
+      width={650}
       footer={
         currentStep === 0
           ? [
               <Button key="cancel" onClick={handleClose}>
                 取消
               </Button>,
-              <Button key="select" type="primary" icon={<UploadOutlined />} onClick={handleSelectFile}>
+              <Button
+                key="select"
+                type="primary"
+                icon={<UploadOutlined />}
+                onClick={handleSelectFile}
+              >
                 选择文件
               </Button>
             ]
@@ -253,7 +235,7 @@ function ImportModal({ visible, onSuccess, onCancel }: ImportModalProps): JSX.El
         <div style={{ textAlign: 'center', padding: '40px 0' }}>
           <FileExcelOutlined style={{ fontSize: 48, color: '#52c41a', marginBottom: 16 }} />
           <div style={{ marginBottom: 24 }}>
-            <Text style={{ fontSize: 16 }}>请选择要导入的 Excel 文件</Text>
+            <Text style={{ fontSize: 16 }}>请选择要导入的库存 Excel 文件</Text>
           </div>
           <Alert
             type="info"
@@ -266,25 +248,11 @@ function ImportModal({ visible, onSuccess, onCancel }: ImportModalProps): JSX.El
                   <Tag>物料号</Tag> / <Tag>物品编码</Tag> / <Tag>code</Tag> （必填）
                 </p>
                 <p>
-                  <Tag>物料描述</Tag> / <Tag>描述</Tag> （选填）
+                  <Tag>库存数量</Tag> / <Tag>数量</Tag> / <Tag>库存</Tag> / <Tag>quantity</Tag>{' '}
+                  （必填）
                 </p>
-                <p>
-                  <Tag>物品名称</Tag> / <Tag>名称</Tag> / <Tag>name</Tag> （必填）
-                </p>
-                <p>
-                  <Tag>规格</Tag> / <Tag>spec</Tag> （选填）
-                </p>
-                <p>
-                  <Tag>等级</Tag> / <Tag>grade</Tag> （选填）
-                </p>
-                <p>
-                  <Tag>表面处理</Tag> （选填）
-                </p>
-                <p>
-                  <Tag>材质</Tag> （选填）
-                </p>
-                <p>
-                  <Tag>特殊备注</Tag> / <Tag>备注</Tag> （选填）
+                <p style={{ marginTop: 8, color: '#faad14' }}>
+                  注意：导入会直接覆盖对应物料的库存数量，请确认数据无误后再导入。
                 </p>
               </div>
             }
@@ -301,13 +269,19 @@ function ImportModal({ visible, onSuccess, onCancel }: ImportModalProps): JSX.El
             <Tag color="success">有效 {validCount} 行</Tag>
             {invalidCount > 0 && <Tag color="error">无效 {invalidCount} 行</Tag>}
           </Space>
+          <Alert
+            type="warning"
+            showIcon
+            message="导入将直接覆盖对应物料的库存数量"
+            style={{ marginBottom: 12 }}
+          />
           <Table
             dataSource={previewData}
             columns={previewColumns}
             rowKey="_rowIndex"
             size="small"
             pagination={false}
-            scroll={{ y: 350 }}
+            scroll={{ y: 300 }}
           />
         </div>
       )}
@@ -359,4 +333,4 @@ function ImportModal({ visible, onSuccess, onCancel }: ImportModalProps): JSX.El
   )
 }
 
-export default ImportModal
+export default ImportInventoryModal

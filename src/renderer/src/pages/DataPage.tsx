@@ -13,46 +13,48 @@ import {
 import {
   PlusOutlined,
   UploadOutlined,
+  DownloadOutlined,
   EditOutlined,
   DeleteOutlined,
   ReloadOutlined,
   SearchOutlined,
   ClearOutlined
 } from '@ant-design/icons'
-import type { Product } from '../../../preload/index.d'
+import * as XLSX from 'xlsx'
+import { api, type Product } from '../utils/api'
+import { useAuth } from '../contexts/AuthContext'
 import ProductForm from '../components/ProductForm'
 import ImportModal from '../components/ImportModal'
 
 const { Title } = Typography
 
 function DataPage(): JSX.Element {
+  const { user } = useAuth()
   const [products, setProducts] = useState<Product[]>([])
   const [filteredProducts, setFilteredProducts] = useState<Product[]>([])
   const [loading, setLoading] = useState(false)
   const [filterText, setFilterText] = useState('')
 
-  // 表单弹窗
   const [formVisible, setFormVisible] = useState(false)
   const [editingProduct, setEditingProduct] = useState<Product | null>(null)
 
-  // 导入弹窗
   const [importVisible, setImportVisible] = useState(false)
 
-  // 多选
   const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([])
 
-  // 加载所有物品
+  const isAdmin = user?.role === 'admin'
+
   const loadProducts = useCallback(async () => {
     setLoading(true)
     try {
-      const result = await window.api.getAllProducts()
+      const result = await api.getAllProducts()
       if (result.success && result.data) {
         setProducts(result.data)
         setFilteredProducts(result.data)
       } else {
         message.error(result.error || '加载数据失败')
       }
-    } catch (err) {
+    } catch {
       message.error('加载数据出错')
     } finally {
       setLoading(false)
@@ -63,7 +65,6 @@ function DataPage(): JSX.Element {
     loadProducts()
   }, [loadProducts])
 
-  // 本地过滤
   useEffect(() => {
     if (!filterText.trim()) {
       setFilteredProducts(products)
@@ -85,29 +86,27 @@ function DataPage(): JSX.Element {
     )
   }, [filterText, products])
 
-  // 删除物品
   const handleDelete = useCallback(
     async (id: number) => {
       try {
-        const result = await window.api.deleteProduct(id)
+        const result = await api.deleteProduct(id)
         if (result.success) {
           message.success('删除成功')
           loadProducts()
         } else {
           message.error(result.error || '删除失败')
         }
-      } catch (err) {
+      } catch {
         message.error('删除出错')
       }
     },
     [loadProducts]
   )
 
-  // 批量删除
   const handleDeleteSelected = useCallback(async () => {
     if (selectedRowKeys.length === 0) return
     try {
-      const result = await window.api.deleteProducts(selectedRowKeys as number[])
+      const result = await api.deleteProducts(selectedRowKeys as number[])
       if (result.success) {
         message.success(`成功删除 ${selectedRowKeys.length} 条数据`)
         setSelectedRowKeys([])
@@ -120,10 +119,9 @@ function DataPage(): JSX.Element {
     }
   }, [selectedRowKeys, loadProducts])
 
-  // 清空所有数据
   const handleDeleteAll = useCallback(async () => {
     try {
-      const result = await window.api.deleteAllProducts()
+      const result = await api.deleteAllProducts()
       if (result.success) {
         message.success('已清空所有数据')
         setSelectedRowKeys([])
@@ -136,32 +134,70 @@ function DataPage(): JSX.Element {
     }
   }, [loadProducts])
 
-  // 打开新增表单
   const handleAdd = useCallback(() => {
     setEditingProduct(null)
     setFormVisible(true)
   }, [])
 
-  // 打开编辑表单
   const handleEdit = useCallback((product: Product) => {
     setEditingProduct(product)
     setFormVisible(true)
   }, [])
 
-  // 表单提交成功
   const handleFormSuccess = useCallback(() => {
     setFormVisible(false)
     setEditingProduct(null)
     loadProducts()
   }, [loadProducts])
 
-  // 导入成功
   const handleImportSuccess = useCallback(() => {
     setImportVisible(false)
     loadProducts()
   }, [loadProducts])
 
-  // 表格列定义
+  const handleExport = useCallback(() => {
+    const dataToExport = filteredProducts.length > 0 ? filteredProducts : products
+    if (dataToExport.length === 0) {
+      message.warning('没有可导出的数据')
+      return
+    }
+
+    const exportData = dataToExport.map((p) => ({
+      物料号: p.code,
+      物品名称: p.name,
+      物料描述: p.description,
+      规格: p.spec,
+      等级: p.grade,
+      表面处理: p.surface_treatment,
+      材质: p.material,
+      特殊备注: p.special_note
+    }))
+
+    const ws = XLSX.utils.json_to_sheet(exportData)
+
+    const colWidths = [
+      { wch: 15 },
+      { wch: 20 },
+      { wch: 30 },
+      { wch: 15 },
+      { wch: 10 },
+      { wch: 12 },
+      { wch: 12 },
+      { wch: 20 }
+    ]
+    ws['!cols'] = colWidths
+
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, ws, '物品数据')
+
+    const now = new Date()
+    const dateStr = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}`
+    const fileName = `物品数据_${dateStr}.xlsx`
+
+    XLSX.writeFile(wb, fileName)
+    message.success(`已导出 ${dataToExport.length} 条数据`)
+  }, [filteredProducts, products])
+
   const columns = [
     {
       title: '物料号',
@@ -256,7 +292,6 @@ function DataPage(): JSX.Element {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-      {/* 标题和操作按钮 */}
       <div
         style={{
           display: 'flex',
@@ -272,7 +307,7 @@ function DataPage(): JSX.Element {
           {selectedRowKeys.length > 0 && (
             <Popconfirm
               title="批量删除"
-              description={`确定要删除选中的 ${selectedRowKeys.length} 条数据吗？关联的库存和出入库记录也会被清除。`}
+              description={`确定要删除选中的 ${selectedRowKeys.length} 条数据吗？`}
               onConfirm={handleDeleteSelected}
               okText="删除"
               cancelText="取消"
@@ -283,20 +318,25 @@ function DataPage(): JSX.Element {
               </Button>
             </Popconfirm>
           )}
-          <Popconfirm
-            title="清空所有数据"
-            description="确定要清空所有物品数据吗？此操作不可恢复，库存和出入库记录也会被全部清除！"
-            onConfirm={handleDeleteAll}
-            okText="确认清空"
-            cancelText="取消"
-            okType="danger"
-          >
-            <Button danger icon={<ClearOutlined />}>
-              清空全部
-            </Button>
-          </Popconfirm>
+          {isAdmin && (
+            <Popconfirm
+              title="清空所有数据"
+              description="确定要清空所有物品数据吗？此操作不可恢复！"
+              onConfirm={handleDeleteAll}
+              okText="确认清空"
+              cancelText="取消"
+              okType="danger"
+            >
+              <Button danger icon={<ClearOutlined />}>
+                清空全部
+              </Button>
+            </Popconfirm>
+          )}
           <Button icon={<ReloadOutlined />} onClick={loadProducts} loading={loading}>
             刷新
+          </Button>
+          <Button icon={<DownloadOutlined />} onClick={handleExport}>
+            导出 Excel
           </Button>
           <Button icon={<UploadOutlined />} onClick={() => setImportVisible(true)}>
             导入 Excel
@@ -307,7 +347,6 @@ function DataPage(): JSX.Element {
         </Space>
       </div>
 
-      {/* 过滤搜索 */}
       <Card size="small" style={{ marginBottom: 16 }}>
         <Input
           placeholder="输入关键字过滤列表..."
@@ -318,7 +357,6 @@ function DataPage(): JSX.Element {
         />
       </Card>
 
-      {/* 物品列表表格 */}
       <Card
         size="small"
         style={{ flex: 1, overflow: 'auto' }}
@@ -344,7 +382,6 @@ function DataPage(): JSX.Element {
         />
       </Card>
 
-      {/* 新增/编辑物品表单弹窗 */}
       <ProductForm
         visible={formVisible}
         product={editingProduct}
@@ -355,7 +392,6 @@ function DataPage(): JSX.Element {
         }}
       />
 
-      {/* Excel 导入弹窗 */}
       <ImportModal
         visible={importVisible}
         onSuccess={handleImportSuccess}

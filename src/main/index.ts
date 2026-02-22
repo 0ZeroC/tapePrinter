@@ -1,11 +1,13 @@
 import { app, shell, BrowserWindow } from 'electron'
 import { join } from 'path'
-import { registerIpcHandlers } from './ipc-handlers'
 import { initDatabase } from './database'
+import { startServer, getServerUrl, getLocalIP } from './server'
 
 const isDev = !app.isPackaged
+const SERVER_PORT = 3456
 
-function createWindow(): void {
+function createWindow(serverUrl: string): void {
+  const ip = getLocalIP()
   const mainWindow = new BrowserWindow({
     width: 1200,
     height: 800,
@@ -13,7 +15,7 @@ function createWindow(): void {
     minHeight: 600,
     show: false,
     autoHideMenuBar: true,
-    title: '标签打印软件',
+    title: `标签打印软件 - 其他电脑请访问 http://${ip}:${SERVER_PORT}`,
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       sandbox: false
@@ -29,26 +31,23 @@ function createWindow(): void {
     return { action: 'deny' }
   })
 
-  // 开发环境加载 dev server，生产环境加载打包文件
   if (isDev && process.env['ELECTRON_RENDERER_URL']) {
     mainWindow.loadURL(process.env['ELECTRON_RENDERER_URL'])
   } else {
-    mainWindow.loadFile(join(__dirname, '../renderer/index.html'))
+    mainWindow.loadURL(serverUrl)
   }
 }
 
-app.whenReady().then(() => {
-  // 初始化数据库
+app.whenReady().then(async () => {
   initDatabase()
 
-  // 注册 IPC 处理器
-  registerIpcHandlers()
+  const rendererDir = isDev ? undefined : join(__dirname, '../renderer')
+  const serverUrl = await startServer(SERVER_PORT, rendererDir)
 
-  // 创建窗口
-  createWindow()
+  createWindow(serverUrl)
 
   app.on('activate', function () {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow()
+    if (BrowserWindow.getAllWindows().length === 0) createWindow(getServerUrl())
   })
 })
 

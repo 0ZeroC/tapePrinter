@@ -11,8 +11,15 @@ import {
   Tag,
   Empty
 } from 'antd'
-import { SearchOutlined, EditOutlined } from '@ant-design/icons'
-import type { InventoryWithProduct } from '../../../preload/index.d'
+import {
+  SearchOutlined,
+  EditOutlined,
+  DownloadOutlined,
+  UploadOutlined
+} from '@ant-design/icons'
+import * as XLSX from 'xlsx'
+import { api, type InventoryWithProduct } from '../utils/api'
+import ImportInventoryModal from '../components/ImportInventoryModal'
 
 function StockPage(): JSX.Element {
   const [inventoryList, setInventoryList] = useState<InventoryWithProduct[]>([])
@@ -20,18 +27,18 @@ function StockPage(): JSX.Element {
   const [loading, setLoading] = useState(false)
   const [searchText, setSearchText] = useState('')
 
-  // 修改库存弹窗
+  const [importVisible, setImportVisible] = useState(false)
+
   const [modalOpen, setModalOpen] = useState(false)
   const [editItem, setEditItem] = useState<InventoryWithProduct | null>(null)
   const [newQuantity, setNewQuantity] = useState<number>(0)
   const [remark, setRemark] = useState('')
   const [submitting, setSubmitting] = useState(false)
 
-  // 加载库存列表
   const loadInventory = useCallback(async () => {
     setLoading(true)
     try {
-      const result = await window.api.getAllInventory()
+      const result = await api.getAllInventory()
       if (result.success && result.data) {
         setInventoryList(result.data)
         filterList(result.data, searchText)
@@ -47,7 +54,6 @@ function StockPage(): JSX.Element {
     loadInventory()
   }, [])
 
-  // 本地筛选
   const filterList = (list: InventoryWithProduct[], keyword: string) => {
     if (!keyword.trim()) {
       setFilteredList(list)
@@ -73,7 +79,6 @@ function StockPage(): JSX.Element {
     filterList(inventoryList, value)
   }
 
-  // 打开修改弹窗
   const handleEdit = (item: InventoryWithProduct) => {
     setEditItem(item)
     setNewQuantity(item.quantity)
@@ -81,16 +86,11 @@ function StockPage(): JSX.Element {
     setModalOpen(true)
   }
 
-  // 确认修改库存
   const handleSetInventory = useCallback(async () => {
     if (!editItem) return
-    if (newQuantity < 0) {
-      message.warning('库存数量不能为负数')
-      return
-    }
     setSubmitting(true)
     try {
-      const result = await window.api.setInventory(editItem.product_id, newQuantity, remark)
+      const result = await api.setInventory(editItem.product_id, newQuantity, remark)
       if (result.success) {
         message.success(`库存已修改：${editItem.name} → ${newQuantity}`)
         setModalOpen(false)
@@ -104,6 +104,54 @@ function StockPage(): JSX.Element {
       setSubmitting(false)
     }
   }, [editItem, newQuantity, remark, loadInventory])
+
+  const handleExport = useCallback(() => {
+    const dataToExport = filteredList.length > 0 ? filteredList : inventoryList
+    if (dataToExport.length === 0) {
+      message.warning('没有可导出的数据')
+      return
+    }
+
+    const exportData = dataToExport.map((item) => ({
+      物料号: item.code,
+      物品名称: item.name,
+      物料描述: item.description,
+      规格: item.spec,
+      等级: item.grade,
+      表面处理: item.surface_treatment,
+      材质: item.material,
+      特殊备注: item.special_note,
+      库存数量: item.quantity,
+      更新时间: item.updated_at
+    }))
+
+    const ws = XLSX.utils.json_to_sheet(exportData)
+    ws['!cols'] = [
+      { wch: 15 },
+      { wch: 20 },
+      { wch: 30 },
+      { wch: 15 },
+      { wch: 10 },
+      { wch: 12 },
+      { wch: 12 },
+      { wch: 20 },
+      { wch: 10 },
+      { wch: 20 }
+    ]
+
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, ws, '库存数据')
+
+    const now = new Date()
+    const dateStr = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}`
+    XLSX.writeFile(wb, `库存数据_${dateStr}.xlsx`)
+    message.success(`已导出 ${dataToExport.length} 条数据`)
+  }, [filteredList, inventoryList])
+
+  const handleImportSuccess = useCallback(() => {
+    setImportVisible(false)
+    loadInventory()
+  }, [loadInventory])
 
   const columns = [
     { title: '物料号', dataIndex: 'code', key: 'code', width: 120 },
@@ -143,7 +191,6 @@ function StockPage(): JSX.Element {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-      {/* 搜索栏 */}
       <Card size="small" style={{ marginBottom: 16 }}>
         <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
           <Input
@@ -155,13 +202,18 @@ function StockPage(): JSX.Element {
             size="large"
             style={{ flex: 1, fontSize: 16 }}
           />
-          <Button type="primary" size="large" onClick={loadInventory} loading={loading}>
+          <Button size="large" onClick={loadInventory} loading={loading}>
             刷新
+          </Button>
+          <Button size="large" icon={<DownloadOutlined />} onClick={handleExport}>
+            导出 Excel
+          </Button>
+          <Button size="large" icon={<UploadOutlined />} onClick={() => setImportVisible(true)}>
+            导入库存
           </Button>
         </div>
       </Card>
 
-      {/* 库存列表 */}
       <Card
         size="small"
         title={`库存列表 ${filteredList.length > 0 ? `(${filteredList.length} 项)` : ''}`}
@@ -173,13 +225,16 @@ function StockPage(): JSX.Element {
           columns={columns}
           rowKey="product_id"
           size="small"
-          pagination={{ pageSize: 30, showSizeChanger: true, pageSizeOptions: ['20', '30', '50', '100'] }}
+          pagination={{
+            pageSize: 30,
+            showSizeChanger: true,
+            pageSizeOptions: ['20', '30', '50', '100']
+          }}
           loading={loading}
           locale={{ emptyText: <Empty description="暂无库存数据" /> }}
         />
       </Card>
 
-      {/* 修改库存弹窗 */}
       <Modal
         title="修改库存"
         open={modalOpen}
@@ -195,7 +250,9 @@ function StockPage(): JSX.Element {
               <Descriptions.Item label="物品名称">{editItem.name}</Descriptions.Item>
               <Descriptions.Item label="规格">{editItem.spec || '-'}</Descriptions.Item>
               <Descriptions.Item label="等级">{editItem.grade || '-'}</Descriptions.Item>
-              <Descriptions.Item label="表面处理">{editItem.surface_treatment || '-'}</Descriptions.Item>
+              <Descriptions.Item label="表面处理">
+                {editItem.surface_treatment || '-'}
+              </Descriptions.Item>
               <Descriptions.Item label="当前库存" span={2}>
                 <Tag color="blue" style={{ fontSize: 16, padding: '2px 12px' }}>
                   {editItem.quantity}
@@ -205,7 +262,7 @@ function StockPage(): JSX.Element {
             <div style={{ marginBottom: 16 }}>
               <div style={{ marginBottom: 8, fontWeight: 500 }}>修改后数量：</div>
               <InputNumber
-                min={0}
+                min={-999999}
                 max={999999}
                 value={newQuantity}
                 onChange={(v) => setNewQuantity(v ?? 0)}
@@ -243,6 +300,12 @@ function StockPage(): JSX.Element {
           </div>
         )}
       </Modal>
+
+      <ImportInventoryModal
+        visible={importVisible}
+        onSuccess={handleImportSuccess}
+        onCancel={() => setImportVisible(false)}
+      />
     </div>
   )
 }

@@ -1,6 +1,6 @@
 import { useEffect } from 'react'
 import { Modal, Form, Input, message } from 'antd'
-import type { Product, ProductData } from '../../../preload/index.d'
+import { api, type Product, type ProductData } from '../utils/api'
 
 interface ProductFormProps {
   visible: boolean
@@ -38,9 +38,9 @@ function ProductForm({ visible, product, onSuccess, onCancel }: ProductFormProps
       let result
 
       if (isEditing && product) {
-        result = await window.api.updateProduct(product.id, values)
+        result = await api.updateProduct(product.id, values)
       } else {
-        result = await window.api.createProduct(values)
+        result = await api.createProduct(values)
       }
 
       if (result.success) {
@@ -50,7 +50,6 @@ function ProductForm({ visible, product, onSuccess, onCancel }: ProductFormProps
         message.error(result.error || (isEditing ? '更新失败' : '创建失败'))
       }
     } catch (err) {
-      // 表单验证失败，不处理
       if ((err as { errorFields?: unknown }).errorFields) return
       message.error('操作失败')
     }
@@ -67,11 +66,7 @@ function ProductForm({ visible, product, onSuccess, onCancel }: ProductFormProps
       destroyOnClose
       width={500}
     >
-      <Form
-        form={form}
-        layout="vertical"
-        style={{ marginTop: 16 }}
-      >
+      <Form form={form} layout="vertical" style={{ marginTop: 16 }}>
         <Form.Item
           label="物料号"
           name="code"
@@ -82,7 +77,6 @@ function ProductForm({ visible, product, onSuccess, onCancel }: ProductFormProps
         >
           <Input placeholder="请输入物料号（唯一标识）" />
         </Form.Item>
-
         <Form.Item
           label="物料描述"
           name="description"
@@ -90,7 +84,6 @@ function ProductForm({ visible, product, onSuccess, onCancel }: ProductFormProps
         >
           <Input placeholder="请输入物料描述" />
         </Form.Item>
-
         <Form.Item
           label="物品名称"
           name="name"
@@ -101,7 +94,6 @@ function ProductForm({ visible, product, onSuccess, onCancel }: ProductFormProps
         >
           <Input placeholder="请输入物品名称" />
         </Form.Item>
-
         <Form.Item
           label="规格"
           name="spec"
@@ -109,7 +101,6 @@ function ProductForm({ visible, product, onSuccess, onCancel }: ProductFormProps
         >
           <Input placeholder="请输入规格" />
         </Form.Item>
-
         <Form.Item
           label="等级"
           name="grade"
@@ -117,7 +108,6 @@ function ProductForm({ visible, product, onSuccess, onCancel }: ProductFormProps
         >
           <Input placeholder="请输入等级" />
         </Form.Item>
-
         <Form.Item
           label="表面处理"
           name="surface_treatment"
@@ -125,7 +115,6 @@ function ProductForm({ visible, product, onSuccess, onCancel }: ProductFormProps
         >
           <Input placeholder="请输入表面处理方式" />
         </Form.Item>
-
         <Form.Item
           label="材质"
           name="material"
@@ -133,7 +122,6 @@ function ProductForm({ visible, product, onSuccess, onCancel }: ProductFormProps
         >
           <Input placeholder="请输入材质" />
         </Form.Item>
-
         <Form.Item
           label="特殊备注"
           name="special_note"

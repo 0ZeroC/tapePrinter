@@ -15,6 +15,11 @@ export default defineConfig({
         '@': resolve('src/renderer/src')
       }
     },
-    plugins: [react()]
+    plugins: [react()],
+    server: {
+      proxy: {
+        '/api': 'http://localhost:3456'
+      }
+    }
   }
 })

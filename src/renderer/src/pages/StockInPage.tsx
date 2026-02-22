@@ -13,15 +13,17 @@ import {
   Empty
 } from 'antd'
 import { SearchOutlined, ImportOutlined } from '@ant-design/icons'
-import type { Product, InventoryLog } from '../../../preload/index.d'
+import { api, type Product, type InventoryLog } from '../utils/api'
+import { useAuth } from '../contexts/AuthContext'
 
 function StockInPage(): JSX.Element {
+  const { user } = useAuth()
   const [searchText, setSearchText] = useState('')
   const [searchResults, setSearchResults] = useState<Product[]>([])
   const [loading, setLoading] = useState(false)
   const [modalOpen, setModalOpen] = useState(false)
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null)
-  const [currentStock, setCurrentStock] = useState<number>(0)
+  const [currentStock, setCurrentStock] = useState<number | null>(null)
   const [quantity, setQuantity] = useState<number>(1)
   const [remark, setRemark] = useState('')
   const [submitting, setSubmitting] = useState(false)
@@ -29,11 +31,13 @@ function StockInPage(): JSX.Element {
   const [logsLoading, setLogsLoading] = useState(false)
   const searchInputRef = useRef<any>(null)
 
-  // 加载入库记录
+  const canViewInventory = user?.canViewInventory ?? false
+
   const loadLogs = useCallback(async () => {
+    if (!canViewInventory) return
     setLogsLoading(true)
     try {
-      const result = await window.api.getInventoryLogs(undefined, 'in')
+      const result = await api.getInventoryLogs(undefined, 'in')
       if (result.success && result.data) {
         setLogs(result.data)
       }
@@ -42,13 +46,12 @@ function StockInPage(): JSX.Element {
     } finally {
       setLogsLoading(false)
     }
-  }, [])
+  }, [canViewInventory])
 
   useEffect(() => {
     loadLogs()
   }, [loadLogs])
 
-  // 搜索物品
   const handleSearch = useCallback(async (value: string) => {
     if (!value.trim()) {
       setSearchResults([])
@@ -56,10 +59,9 @@ function StockInPage(): JSX.Element {
     }
     setLoading(true)
     try {
-      const result = await window.api.searchProducts(value.trim())
+      const result = await api.searchProducts(value.trim())
       if (result.success && result.data) {
         setSearchResults(result.data)
-        // 如果只有一个结果（扫码枪精确匹配），自动弹出
         if (result.data.length === 1) {
           handleSelectProduct(result.data[0])
         }
@@ -73,24 +75,28 @@ function StockInPage(): JSX.Element {
     }
   }, [])
 
-  // 选择产品，弹出入库弹窗
-  const handleSelectProduct = useCallback(async (product: Product) => {
-    setSelectedProduct(product)
-    setQuantity(1)
-    setRemark('')
-    // 获取当前库存
-    try {
-      const result = await window.api.getInventory(product.id)
-      if (result.success) {
-        setCurrentStock(result.data ?? 0)
+  const handleSelectProduct = useCallback(
+    async (product: Product) => {
+      setSelectedProduct(product)
+      setQuantity(1)
+      setRemark('')
+      if (canViewInventory) {
+        try {
+          const result = await api.getInventory(product.id)
+          if (result.success) {
+            setCurrentStock(result.data ?? 0)
+          }
+        } catch {
+          setCurrentStock(null)
+        }
+      } else {
+        setCurrentStock(null)
       }
-    } catch {
-      setCurrentStock(0)
-    }
-    setModalOpen(true)
-  }, [])
+      setModalOpen(true)
+    },
+    [canViewInventory]
+  )
 
-  // 确认入库
   const handleStockIn = useCallback(async () => {
     if (!selectedProduct) return
     if (quantity < 1) {
@@ -99,14 +105,13 @@ function StockInPage(): JSX.Element {
     }
     setSubmitting(true)
     try {
-      const result = await window.api.stockIn(selectedProduct.id, quantity, remark)
+      const result = await api.stockIn(selectedProduct.id, quantity, remark)
       if (result.success) {
         message.success(`入库成功：${selectedProduct.name} x ${quantity}`)
         setModalOpen(false)
         setSearchText('')
         setSearchResults([])
         loadLogs()
-        // 聚焦搜索框，方便继续扫码
         setTimeout(() => searchInputRef.current?.focus(), 100)
       } else {
         message.error(result.error || '入库失败')
@@ -118,7 +123,6 @@ function StockInPage(): JSX.Element {
     }
   }, [selectedProduct, quantity, remark, loadLogs])
 
-  // 搜索结果列
   const searchColumns = [
     { title: '物料号', dataIndex: 'code', key: 'code', width: 120 },
     { title: '物品名称', dataIndex: 'name', key: 'name', width: 140 },
@@ -137,7 +141,6 @@ function StockInPage(): JSX.Element {
     }
   ]
 
-  // 记录列
   const logColumns = [
     { title: '时间', dataIndex: 'created_at', key: 'created_at', width: 170 },
     { title: '编码', dataIndex: 'product_code', key: 'product_code', width: 120 },
@@ -150,12 +153,12 @@ function StockInPage(): JSX.Element {
       width: 80,
       render: (val: number) => <Tag color="green">+{val}</Tag>
     },
+    { title: '操作人', dataIndex: 'operator_name', key: 'operator_name', width: 90 },
     { title: '备注', dataIndex: 'remark', key: 'remark', ellipsis: true }
   ]
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-      {/* 搜索区域 */}
       <Card size="small" style={{ marginBottom: 16 }}>
         <Space.Compact style={{ width: '100%' }}>
           <Input
@@ -185,7 +188,6 @@ function StockInPage(): JSX.Element {
         </div>
       </Card>
 
-      {/* 搜索结果 */}
       {searchResults.length > 0 && (
         <Card
           size="small"
@@ -209,25 +211,25 @@ function StockInPage(): JSX.Element {
         </Card>
       )}
 
-      {/* 入库记录 */}
-      <Card
-        size="small"
-        title="入库记录"
-        style={{ flex: 1, overflow: 'auto' }}
-        styles={{ body: { padding: 0 } }}
-      >
-        <Table
-          dataSource={logs}
-          columns={logColumns}
-          rowKey="id"
+      {canViewInventory && (
+        <Card
           size="small"
-          pagination={{ pageSize: 20, showSizeChanger: false }}
-          loading={logsLoading}
-          locale={{ emptyText: <Empty description="暂无入库记录" /> }}
-        />
-      </Card>
+          title="入库记录"
+          style={{ flex: 1, overflow: 'auto' }}
+          styles={{ body: { padding: 0 } }}
+        >
+          <Table
+            dataSource={logs}
+            columns={logColumns}
+            rowKey="id"
+            size="small"
+            pagination={{ pageSize: 20, showSizeChanger: false }}
+            loading={logsLoading}
+            locale={{ emptyText: <Empty description="暂无入库记录" /> }}
+          />
+        </Card>
+      )}
 
-      {/* 入库弹窗 */}
       <Modal
         title="入库操作"
         open={modalOpen}
@@ -246,9 +248,11 @@ function StockInPage(): JSX.Element {
               <Descriptions.Item label="表面处理">
                 {selectedProduct.surface_treatment || '-'}
               </Descriptions.Item>
-              <Descriptions.Item label="当前库存">
-                <Tag color="blue">{currentStock}</Tag>
-              </Descriptions.Item>
+              {canViewInventory && currentStock !== null && (
+                <Descriptions.Item label="当前库存">
+                  <Tag color="blue">{currentStock}</Tag>
+                </Descriptions.Item>
+              )}
             </Descriptions>
             <div style={{ marginBottom: 16 }}>
               <div style={{ marginBottom: 8, fontWeight: 500 }}>入库数量：</div>

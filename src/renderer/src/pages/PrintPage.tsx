@@ -14,7 +14,8 @@ import {
   Typography
 } from 'antd'
 import { SearchOutlined, PrinterOutlined } from '@ant-design/icons'
-import type { Product } from '../../../preload/index.d'
+import { api, type Product } from '../utils/api'
+import { useAuth } from '../contexts/AuthContext'
 import LabelSmall from '../components/LabelSmall'
 import LabelLarge from '../components/LabelLarge'
 import '../styles/label-print.css'
@@ -24,6 +25,7 @@ const { Title } = Typography
 type TemplateType = 'small' | 'large'
 
 function PrintPage(): JSX.Element {
+  const { user } = useAuth()
   const [searchText, setSearchText] = useState('')
   const [searchResults, setSearchResults] = useState<Product[]>([])
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null)
@@ -35,7 +37,6 @@ function PrintPage(): JSX.Element {
   const [printing, setPrinting] = useState(false)
   const searchInputRef = useRef<any>(null)
 
-  // 搜索物品
   const handleSearch = useCallback(async (value: string) => {
     if (!value.trim()) {
       setSearchResults([])
@@ -44,24 +45,22 @@ function PrintPage(): JSX.Element {
     setLoading(true)
     try {
       const searchQuery = value.trim()
-      const result = await window.api.searchProducts(searchQuery)
+      const result = await api.searchProducts(searchQuery)
       if (result.success && result.data) {
         setSearchResults(result.data)
-        // 如果只有一个结果（扫码枪通常精确匹配），自动选中
         if (result.data.length === 1) {
           setSelectedProduct(result.data[0])
         }
       } else {
         message.error(result.error || '搜索失败')
       }
-    } catch (err) {
+    } catch {
       message.error('搜索出错')
     } finally {
       setLoading(false)
     }
   }, [])
 
-  // 打印标签
   const handlePrint = useCallback(async () => {
     if (!selectedProduct) {
       message.warning('请先选择要打印的物品')
@@ -73,20 +72,25 @@ function PrintPage(): JSX.Element {
     }
     setPrinting(true)
     try {
-      const result = await window.api.printLabel({ silent: false })
-      if (result.success) {
-        message.success('打印任务已发送')
-      } else {
-        message.error(result.error || '打印失败')
+      const deductResult = await api.printAndDeduct(
+        selectedProduct.id,
+        quantity,
+        printCount,
+        templateType
+      )
+      if (!deductResult.success) {
+        message.error(deductResult.error || '记录打印失败')
+        return
       }
-    } catch (err) {
+      window.print()
+      message.success('打印任务已发送，库存已扣减')
+    } catch {
       message.error('打印出错')
     } finally {
       setPrinting(false)
     }
-  }, [selectedProduct, quantity, printCount])
+  }, [selectedProduct, quantity, printCount, templateType])
 
-  // 搜索结果表格列定义
   const columns = [
     { title: '物料号', dataIndex: 'code', key: 'code', width: 120 },
     { title: '物品名称', dataIndex: 'name', key: 'name', width: 140 },
@@ -112,7 +116,6 @@ function PrintPage(): JSX.Element {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-      {/* 搜索区域 */}
       <Card size="small" style={{ marginBottom: 16 }}>
         <Space.Compact style={{ width: '100%' }}>
           <Input
@@ -142,7 +145,6 @@ function PrintPage(): JSX.Element {
         </div>
       </Card>
 
-      {/* 搜索结果表格 */}
       <Card
         size="small"
         title={`搜索结果 ${searchResults.length > 0 ? `(${searchResults.length} 条)` : ''}`}
@@ -168,10 +170,8 @@ function PrintPage(): JSX.Element {
         />
       </Card>
 
-      {/* 下半部分：左右两栏布局 */}
       {selectedProduct && (
         <div style={{ display: 'flex', gap: 16, flex: 1, minHeight: 0 }}>
-          {/* 左下角：已选物品 + 打印配置 */}
           <Card size="small" style={{ flex: 1, overflow: 'auto' }}>
             <Title level={5} style={{ marginTop: 0 }}>
               已选物品：{selectedProduct.name}（{selectedProduct.code}）
@@ -249,16 +249,14 @@ function PrintPage(): JSX.Element {
                 loading={printing}
                 block
               >
-                打印标签 ({printCount} 张)
+                打印标签 ({printCount} 张) 并扣减库存
               </Button>
             </Space>
           </Card>
 
-          {/* 右下角：打印预览 */}
           <Card size="small" title="打印预览" style={{ flex: 1, overflow: 'auto' }}>
             <div className="print-area">
               <div className="label-preview-container">
-                {/* 必须渲染全部 printCount 张，否则打印时只会输出前几张，其余页空白 */}
                 {Array.from({ length: printCount }, (_, i) => (
                   <div
                     key={i}
