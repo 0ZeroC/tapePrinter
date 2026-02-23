@@ -142,15 +142,33 @@ export function getDatabase(): Database.Database {
 // ==============================
 
 export function searchProducts(query: string): Product[] {
-  const stmt = db.prepare(`
-    SELECT * FROM products
-    WHERE code LIKE ? OR description LIKE ? OR name LIKE ? OR spec LIKE ?
-      OR grade LIKE ? OR surface_treatment LIKE ? OR material LIKE ? OR special_note LIKE ?
-    ORDER BY updated_at DESC
-    LIMIT 100
-  `)
-  const pattern = `%${query}%`
-  return stmt.all(pattern, pattern, pattern, pattern, pattern, pattern, pattern, pattern) as Product[]
+  const keywords = query.trim().split(/\s+/).filter(Boolean)
+  if (keywords.length === 0) return []
+
+  const fields = ['code', 'description', 'name', 'spec', 'grade', 'surface_treatment', 'material', 'special_note']
+
+  function getVariants(kw: string): string[] {
+    const variants = [kw]
+    if (kw.includes('*')) variants.push(kw.replace(/\*/g, '×'))
+    else if (kw.includes('×')) variants.push(kw.replace(/×/g, '*'))
+    return variants
+  }
+
+  const whereClauses: string[] = []
+  const params: string[] = []
+
+  for (const kw of keywords) {
+    const variants = getVariants(kw)
+    const conditions = fields.flatMap((f) => variants.map((v) => {
+      params.push(`%${v}%`)
+      return `${f} LIKE ?`
+    }))
+    whereClauses.push(`(${conditions.join(' OR ')})`)
+  }
+
+  const sql = `SELECT * FROM products WHERE ${whereClauses.join(' AND ')} ORDER BY updated_at DESC LIMIT 100`
+  const stmt = db.prepare(sql)
+  return stmt.all(...params) as Product[]
 }
 
 export function getAllProducts(): Product[] {
@@ -488,6 +506,14 @@ export function importInventory(
   return { success, failed, errors }
 }
 
+export function deleteInventoryLogs(ids: number[]): number {
+  if (ids.length === 0) return 0
+  const placeholders = ids.map(() => '?').join(',')
+  const stmt = db.prepare(`DELETE FROM inventory_logs WHERE id IN (${placeholders})`)
+  const result = stmt.run(...ids)
+  return result.changes
+}
+
 export function getInventoryLogs(
   productId?: number,
   type?: 'in' | 'out'
@@ -525,19 +551,19 @@ export function printAndDeductInventory(
   operatorName: string,
   skipDeduct: boolean = false
 ): void {
-  const totalDeduct = quantity * printCount
+  const totalPieces = quantity * printCount
+  const totalDeductInThousands = totalPieces / 1000
   const txn = db.transaction(() => {
     if (!skipDeduct) {
-      // Deduct inventory (allow negative)
       const existing = db.prepare('SELECT id FROM inventory WHERE product_id = ?').get(productId)
       if (existing) {
         db.prepare(
           'UPDATE inventory SET quantity = quantity - ?, updated_at = CURRENT_TIMESTAMP WHERE product_id = ?'
-        ).run(totalDeduct, productId)
+        ).run(totalDeductInThousands, productId)
       } else {
         db.prepare('INSERT INTO inventory (product_id, quantity) VALUES (?, ?)').run(
           productId,
-          -totalDeduct
+          -totalDeductInThousands
         )
       }
 
@@ -546,8 +572,8 @@ export function printAndDeductInventory(
       ).run(
         productId,
         'out',
-        totalDeduct,
-        `[打印出库] ${printCount}张${labelType === 'small' ? '小标签' : '大标签'}, 每张${quantity}`,
+        totalDeductInThousands,
+        `[打印出库] ${printCount}张${labelType === 'small' ? '小标签' : '大标签'}, 每张${quantity}只, 共${totalPieces}只=${totalDeductInThousands}千`,
         operatorId,
         operatorName
       )

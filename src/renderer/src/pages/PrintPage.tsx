@@ -86,7 +86,13 @@ function PrintPage(): JSX.Element {
         return
       }
       window.print()
-      message.success(skipInventory ? '打印任务已发送（未扣减库存）' : '打印任务已发送，库存已扣减')
+      const totalPieces = quantity * printCount
+      const deductThousands = totalPieces / 1000
+      message.success(
+        skipInventory
+          ? '打印任务已发送（未扣减库存）'
+          : `打印任务已发送，库存已扣减 ${deductThousands}千（${totalPieces}只）`
+      )
     } catch {
       message.error('打印出错')
     } finally {
@@ -96,6 +102,7 @@ function PrintPage(): JSX.Element {
 
   const columns = [
     { title: '物料号', dataIndex: 'code', key: 'code', width: 120 },
+    { title: '物料描述', dataIndex: 'description', key: 'description', width: 140 },
     { title: '物品名称', dataIndex: 'name', key: 'name', width: 140 },
     { title: '规格', dataIndex: 'spec', key: 'spec', width: 120 },
     { title: '等级', dataIndex: 'grade', key: 'grade', width: 70 },
@@ -123,7 +130,7 @@ function PrintPage(): JSX.Element {
         <Space.Compact style={{ width: '100%' }}>
           <Input
             ref={searchInputRef}
-            placeholder="输入物品编码、名称、规格或扫码搜索..."
+            placeholder="多条件搜索，用空格分隔，如：5783 10*20"
             value={searchText}
             onChange={(e) => setSearchText(e.target.value)}
             onPressEnter={(e) => handleSearch((e.target as HTMLInputElement).value)}
@@ -151,8 +158,15 @@ function PrintPage(): JSX.Element {
       <Card
         size="small"
         title={`搜索结果 ${searchResults.length > 0 ? `(${searchResults.length} 条)` : ''}`}
-        style={{ marginBottom: 16, flex: 1, overflow: 'auto' }}
-        styles={{ body: { padding: 0 } }}
+        style={{
+          marginBottom: selectedProduct ? 16 : 0,
+          flex: selectedProduct ? 'none' : 1,
+          minHeight: selectedProduct ? undefined : 0,
+          overflow: 'hidden',
+          display: 'flex',
+          flexDirection: 'column'
+        }}
+        styles={{ body: { padding: 0, flex: 1, overflow: 'hidden' } }}
       >
         <Table
           dataSource={searchResults}
@@ -160,7 +174,7 @@ function PrintPage(): JSX.Element {
           rowKey="id"
           size="small"
           pagination={false}
-          scroll={{ y: 200 }}
+          scroll={{ y: selectedProduct ? 200 : 'calc(100vh - 300px)' }}
           loading={loading}
           locale={{ emptyText: <Empty description="暂无搜索结果" /> }}
           onRow={(record) => ({
@@ -252,6 +266,11 @@ function PrintPage(): JSX.Element {
                   不计入库存（勾选后打印不扣减库存）
                 </Checkbox>
               </div>
+              {!skipInventory && (
+                <div style={{ color: '#999', fontSize: 12, marginBottom: 8 }}>
+                  库存扣减：{quantity} × {printCount} = {quantity * printCount}只 = {(quantity * printCount) / 1000}千
+                </div>
+              )}
               <Button
                 type="primary"
                 icon={<PrinterOutlined />}
@@ -262,7 +281,7 @@ function PrintPage(): JSX.Element {
               >
                 {skipInventory
                   ? `打印标签 (${printCount} 张，不扣减库存)`
-                  : `打印标签 (${printCount} 张) 并扣减库存`}
+                  : `打印标签 (${printCount} 张) 并扣减库存 ${(quantity * printCount) / 1000}千`}
               </Button>
             </Space>
           </Card>

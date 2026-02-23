@@ -16,6 +16,7 @@ import {
   setInventory,
   importInventory,
   getInventoryLogs,
+  deleteInventoryLogs,
   printAndDeductInventory,
   verifyPassword,
   getAllUsers,
@@ -289,6 +290,20 @@ router.get('/inventory/logs', authMiddleware, inventoryViewMiddleware, (req, res
     const productId = req.query.productId ? parseInt(req.query.productId as string) : undefined
     const type = req.query.type as 'in' | 'out' | undefined
     res.json(ok(getInventoryLogs(productId, type)))
+  } catch (err) {
+    res.json(fail((err as Error).message))
+  }
+})
+
+router.post('/inventory/logs/batch-delete', authMiddleware, adminMiddleware, (req, res) => {
+  try {
+    const { ids } = req.body
+    if (!Array.isArray(ids) || ids.length === 0) {
+      res.json(fail('请选择要删除的记录'))
+      return
+    }
+    const count = deleteInventoryLogs(ids)
+    res.json(ok(count))
   } catch (err) {
     res.json(fail((err as Error).message))
   }

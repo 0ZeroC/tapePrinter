@@ -11,9 +11,11 @@ import {
   Descriptions,
   Tag,
   Empty,
-  Select
+  Select,
+  Dropdown
 } from 'antd'
-import { SearchOutlined, ImportOutlined, FilterOutlined } from '@ant-design/icons'
+import { SearchOutlined, ImportOutlined, FilterOutlined, DownloadOutlined, DeleteOutlined, DownOutlined } from '@ant-design/icons'
+import * as XLSX from 'xlsx'
 import { api, type Product, type InventoryLog } from '../utils/api'
 import { useAuth } from '../contexts/AuthContext'
 
@@ -35,7 +37,12 @@ function StockInPage(): JSX.Element {
   const [filterOperator, setFilterOperator] = useState<string>('')
   const [filterKeyword, setFilterKeyword] = useState('')
   const searchInputRef = useRef<any>(null)
+  const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([])
+  const [currentPage, setCurrentPage] = useState(1)
+  const [deleting, setDeleting] = useState(false)
+  const pageSize = 20
 
+  const isAdmin = user?.role === 'admin'
   const canViewInventory = user?.canViewInventory ?? false
 
   const filteredLogs = useMemo(() => {
@@ -150,8 +157,88 @@ function StockInPage(): JSX.Element {
     }
   }, [selectedProduct, quantity, remark, loadLogs])
 
+  const handleExportExcel = useCallback(() => {
+    if (filteredLogs.length === 0) {
+      message.warning('没有可导出的数据')
+      return
+    }
+    const data = filteredLogs.map((log) => ({
+      时间: log.created_at || '',
+      编码: log.product_code || '',
+      名称: log.product_name || '',
+      规格: log.product_spec || '',
+      '数量(千)': log.quantity,
+      操作人: log.operator_name || '',
+      备注: log.remark || ''
+    }))
+    const ws = XLSX.utils.json_to_sheet(data)
+    const colWidths = [{ wch: 20 }, { wch: 15 }, { wch: 20 }, { wch: 18 }, { wch: 10 }, { wch: 10 }, { wch: 25 }]
+    ws['!cols'] = colWidths
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, ws, '入库明细')
+    const dateStr = new Date().toISOString().slice(0, 10)
+    XLSX.writeFile(wb, `入库明细_${dateStr}.xlsx`)
+    message.success('导出成功')
+  }, [filteredLogs])
+
+  const currentPageLogs = useMemo(() => {
+    const start = (currentPage - 1) * pageSize
+    return filteredLogs.slice(start, start + pageSize)
+  }, [filteredLogs, currentPage])
+
+  const handleSelectCurrentPage = useCallback(() => {
+    const pageIds = currentPageLogs.map((log) => log.id)
+    const allSelected = pageIds.every((id) => selectedRowKeys.includes(id))
+    if (allSelected) {
+      setSelectedRowKeys((prev) => prev.filter((key) => !pageIds.includes(key as number)))
+    } else {
+      setSelectedRowKeys((prev) => Array.from(new Set([...prev, ...pageIds])))
+    }
+  }, [currentPageLogs, selectedRowKeys])
+
+  const handleSelectAll = useCallback(() => {
+    const allIds = filteredLogs.map((log) => log.id)
+    if (selectedRowKeys.length === allIds.length) {
+      setSelectedRowKeys([])
+    } else {
+      setSelectedRowKeys(allIds)
+    }
+  }, [filteredLogs, selectedRowKeys])
+
+  const handleDeleteSelected = useCallback(async () => {
+    if (selectedRowKeys.length === 0) {
+      message.warning('请先选择要删除的记录')
+      return
+    }
+    Modal.confirm({
+      title: '确认删除',
+      content: `确定要删除选中的 ${selectedRowKeys.length} 条入库记录吗？此操作不可撤销。`,
+      okText: '确认删除',
+      okType: 'danger',
+      cancelText: '取消',
+      onOk: async () => {
+        setDeleting(true)
+        try {
+          const result = await api.deleteInventoryLogs(selectedRowKeys as number[])
+          if (result.success) {
+            message.success(`成功删除 ${result.data} 条记录`)
+            setSelectedRowKeys([])
+            loadLogs()
+          } else {
+            message.error(result.error || '删除失败')
+          }
+        } catch {
+          message.error('删除出错')
+        } finally {
+          setDeleting(false)
+        }
+      }
+    })
+  }, [selectedRowKeys, loadLogs])
+
   const searchColumns = [
     { title: '物料号', dataIndex: 'code', key: 'code', width: 120 },
+    { title: '物料描述', dataIndex: 'description', key: 'description', width: 140 },
     { title: '物品名称', dataIndex: 'name', key: 'name', width: 140 },
     { title: '规格', dataIndex: 'spec', key: 'spec', width: 120 },
     { title: '等级', dataIndex: 'grade', key: 'grade', width: 70 },
@@ -178,7 +265,7 @@ function StockInPage(): JSX.Element {
       dataIndex: 'quantity',
       key: 'quantity',
       width: 80,
-      render: (val: number) => <Tag color="green">+{val}</Tag>
+      render: (val: number) => <Tag color="green">+{val}千</Tag>
     },
     { title: '操作人', dataIndex: 'operator_name', key: 'operator_name', width: 90 },
     { title: '备注', dataIndex: 'remark', key: 'remark', ellipsis: true }
@@ -190,7 +277,7 @@ function StockInPage(): JSX.Element {
         <Space.Compact style={{ width: '100%' }}>
           <Input
             ref={searchInputRef}
-            placeholder="扫码或输入物品编码、名称搜索..."
+            placeholder="多条件搜索，用空格分隔，如：5783 10*20"
             value={searchText}
             onChange={(e) => setSearchText(e.target.value)}
             onPressEnter={(e) => handleSearch((e.target as HTMLInputElement).value)}
@@ -301,6 +388,46 @@ function StockInPage(): JSX.Element {
               >
                 清空筛选
               </Button>
+              <Button
+                size="small"
+                type="primary"
+                ghost
+                icon={<DownloadOutlined />}
+                onClick={handleExportExcel}
+                disabled={filteredLogs.length === 0}
+              >
+                导出Excel
+              </Button>
+              {isAdmin && (
+                <>
+                  <Dropdown
+                    menu={{
+                      items: [
+                        { key: 'page', label: '本页全选', onClick: handleSelectCurrentPage },
+                        { key: 'all', label: `全选所有 (${filteredLogs.length} 条)`, onClick: handleSelectAll },
+                        { key: 'clear', label: '取消选择', onClick: () => setSelectedRowKeys([]), disabled: selectedRowKeys.length === 0 }
+                      ]
+                    }}
+                  >
+                    <Button size="small">
+                      <Space>
+                        选择
+                        <DownOutlined />
+                      </Space>
+                    </Button>
+                  </Dropdown>
+                  <Button
+                    size="small"
+                    danger
+                    icon={<DeleteOutlined />}
+                    onClick={handleDeleteSelected}
+                    disabled={selectedRowKeys.length === 0}
+                    loading={deleting}
+                  >
+                    删除 {selectedRowKeys.length > 0 ? `(${selectedRowKeys.length})` : ''}
+                  </Button>
+                </>
+              )}
             </Space>
           </div>
           <Table
@@ -308,7 +435,16 @@ function StockInPage(): JSX.Element {
             columns={logColumns}
             rowKey="id"
             size="small"
-            pagination={{ pageSize: 20, showSizeChanger: false }}
+            rowSelection={isAdmin ? {
+              selectedRowKeys,
+              onChange: (keys) => setSelectedRowKeys(keys)
+            } : undefined}
+            pagination={{
+              pageSize,
+              showSizeChanger: false,
+              current: currentPage,
+              onChange: (page) => setCurrentPage(page)
+            }}
             loading={logsLoading}
             locale={{ emptyText: <Empty description={logs.length === 0 ? '暂无入库记录' : '无符合条件的记录'} /> }}
           />
@@ -335,20 +471,22 @@ function StockInPage(): JSX.Element {
               </Descriptions.Item>
               {canViewInventory && currentStock !== null && (
                 <Descriptions.Item label="当前库存">
-                  <Tag color="blue">{currentStock}</Tag>
+                  <Tag color="blue">{currentStock}千</Tag>
                 </Descriptions.Item>
               )}
             </Descriptions>
             <div style={{ marginBottom: 16 }}>
-              <div style={{ marginBottom: 8, fontWeight: 500 }}>入库数量：</div>
+              <div style={{ marginBottom: 8, fontWeight: 500 }}>入库数量（千）：</div>
               <InputNumber
-                min={1}
+                min={0.001}
                 max={999999}
+                step={1}
                 value={quantity}
                 onChange={(v) => setQuantity(v || 1)}
                 style={{ width: '100%' }}
                 size="large"
                 autoFocus
+                addonAfter="千"
               />
             </div>
             <div style={{ marginBottom: 16 }}>

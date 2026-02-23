@@ -66,22 +66,19 @@ function DataPage(): JSX.Element {
   }, [loadProducts])
 
   useEffect(() => {
-    if (!filterText.trim()) {
+    const keywords = filterText.trim().toLowerCase().split(/\s+/).filter(Boolean)
+    if (keywords.length === 0) {
       setFilteredProducts(products)
       return
     }
-    const keyword = filterText.trim().toLowerCase()
+    const fields: (keyof Product)[] = ['code', 'description', 'name', 'spec', 'grade', 'surface_treatment', 'material', 'special_note']
+    const normalize = (s: string) => s.toLowerCase().replace(/[*×]/g, '_')
     setFilteredProducts(
-      products.filter(
-        (p) =>
-          p.code.toLowerCase().includes(keyword) ||
-          p.description.toLowerCase().includes(keyword) ||
-          p.name.toLowerCase().includes(keyword) ||
-          p.spec.toLowerCase().includes(keyword) ||
-          p.grade.toLowerCase().includes(keyword) ||
-          p.surface_treatment.toLowerCase().includes(keyword) ||
-          p.material.toLowerCase().includes(keyword) ||
-          p.special_note.toLowerCase().includes(keyword)
+      products.filter((p) =>
+        keywords.every((kw) => {
+          const nkw = normalize(kw)
+          return fields.some((f) => normalize(String(p[f] ?? '')).includes(nkw))
+        })
       )
     )
   }, [filterText, products])
@@ -349,7 +346,7 @@ function DataPage(): JSX.Element {
 
       <Card size="small" style={{ marginBottom: 16 }}>
         <Input
-          placeholder="输入关键字过滤列表..."
+          placeholder="多条件过滤，用空格分隔，如：5783 10*20"
           prefix={<SearchOutlined />}
           value={filterText}
           onChange={(e) => setFilterText(e.target.value)}

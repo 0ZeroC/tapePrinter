@@ -55,21 +55,18 @@ function StockPage(): JSX.Element {
   }, [])
 
   const filterList = (list: InventoryWithProduct[], keyword: string) => {
-    if (!keyword.trim()) {
+    const keywords = keyword.trim().toLowerCase().split(/\s+/).filter(Boolean)
+    if (keywords.length === 0) {
       setFilteredList(list)
       return
     }
-    const kw = keyword.trim().toLowerCase()
-    const filtered = list.filter(
-      (item) =>
-        item.code?.toLowerCase().includes(kw) ||
-        item.description?.toLowerCase().includes(kw) ||
-        item.name?.toLowerCase().includes(kw) ||
-        item.spec?.toLowerCase().includes(kw) ||
-        item.grade?.toLowerCase().includes(kw) ||
-        item.surface_treatment?.toLowerCase().includes(kw) ||
-        item.material?.toLowerCase().includes(kw) ||
-        item.special_note?.toLowerCase().includes(kw)
+    const fields = ['code', 'description', 'name', 'spec', 'grade', 'surface_treatment', 'material', 'special_note'] as const
+    const normalize = (s: string) => s.toLowerCase().replace(/[*×]/g, '_')
+    const filtered = list.filter((item) =>
+      keywords.every((kw) => {
+        const nkw = normalize(kw)
+        return fields.some((f) => normalize(item[f] ?? '').includes(nkw))
+      })
     )
     setFilteredList(filtered)
   }
@@ -155,6 +152,7 @@ function StockPage(): JSX.Element {
 
   const columns = [
     { title: '物料号', dataIndex: 'code', key: 'code', width: 120 },
+    { title: '物料描述', dataIndex: 'description', key: 'description', width: 140 },
     { title: '物品名称', dataIndex: 'name', key: 'name', width: 140 },
     { title: '规格', dataIndex: 'spec', key: 'spec', width: 120 },
     { title: '等级', dataIndex: 'grade', key: 'grade', width: 70 },
@@ -167,7 +165,7 @@ function StockPage(): JSX.Element {
       sorter: (a: InventoryWithProduct, b: InventoryWithProduct) => a.quantity - b.quantity,
       render: (val: number) => (
         <Tag color={val > 0 ? 'blue' : 'red'} style={{ fontSize: 14, padding: '2px 8px' }}>
-          {val}
+          {val}千
         </Tag>
       )
     },
@@ -194,7 +192,7 @@ function StockPage(): JSX.Element {
       <Card size="small" style={{ marginBottom: 16 }}>
         <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
           <Input
-            placeholder="搜索物品编码、名称、规格..."
+            placeholder="多条件搜索，用空格分隔，如：5783 10*20"
             value={searchText}
             onChange={(e) => handleSearchChange(e.target.value)}
             prefix={<SearchOutlined />}
@@ -255,26 +253,28 @@ function StockPage(): JSX.Element {
               </Descriptions.Item>
               <Descriptions.Item label="当前库存" span={2}>
                 <Tag color="blue" style={{ fontSize: 16, padding: '2px 12px' }}>
-                  {editItem.quantity}
+                  {editItem.quantity}千
                 </Tag>
               </Descriptions.Item>
             </Descriptions>
             <div style={{ marginBottom: 16 }}>
-              <div style={{ marginBottom: 8, fontWeight: 500 }}>修改后数量：</div>
+              <div style={{ marginBottom: 8, fontWeight: 500 }}>修改后数量（千）：</div>
               <InputNumber
                 min={-999999}
                 max={999999}
+                step={1}
                 value={newQuantity}
                 onChange={(v) => setNewQuantity(v ?? 0)}
                 style={{ width: '100%' }}
                 size="large"
                 autoFocus
+                addonAfter="千"
               />
               {newQuantity !== editItem.quantity && (
                 <div style={{ marginTop: 4, color: '#999', fontSize: 12 }}>
                   {newQuantity > editItem.quantity
-                    ? `将增加 ${newQuantity - editItem.quantity}`
-                    : `将减少 ${editItem.quantity - newQuantity}`}
+                    ? `将增加 ${newQuantity - editItem.quantity}千`
+                    : `将减少 ${editItem.quantity - newQuantity}千`}
                 </div>
               )}
             </div>

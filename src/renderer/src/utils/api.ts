@@ -209,6 +209,12 @@ export const api = {
     return request<InventoryLog[]>(`/inventory/logs${qs ? '?' + qs : ''}`)
   },
 
+  deleteInventoryLogs: (ids: number[]) =>
+    request<number>('/inventory/logs/batch-delete', {
+      method: 'POST',
+      body: JSON.stringify({ ids })
+    }),
+
   // Print（skipInventory 为 true 时不扣减库存）
   printAndDeduct: (
     productId: number,

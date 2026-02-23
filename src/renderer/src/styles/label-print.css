@@ -191,6 +191,7 @@
   display: flex;
   justify-content: center;
   align-items: center;
+  margin-top: -1mm;
 }
 
 .label-small .label-qrcode img {
@@ -280,6 +281,7 @@
   display: flex;
   justify-content: center;
   align-items: center;
+  margin-top: -1.5mm;
 }
 
 .label-large .label-qrcode img {
