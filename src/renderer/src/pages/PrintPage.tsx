@@ -11,7 +11,8 @@ import {
   message,
   Divider,
   Empty,
-  Typography
+  Typography,
+  Checkbox
 } from 'antd'
 import { SearchOutlined, PrinterOutlined } from '@ant-design/icons'
 import { api, type Product } from '../utils/api'
@@ -33,6 +34,7 @@ function PrintPage(): JSX.Element {
   const [unit, setUnit] = useState<string>('只')
   const [printCount, setPrintCount] = useState<number>(1)
   const [templateType, setTemplateType] = useState<TemplateType>('small')
+  const [skipInventory, setSkipInventory] = useState(false)
   const [loading, setLoading] = useState(false)
   const [printing, setPrinting] = useState(false)
   const searchInputRef = useRef<any>(null)
@@ -76,20 +78,21 @@ function PrintPage(): JSX.Element {
         selectedProduct.id,
         quantity,
         printCount,
-        templateType
+        templateType,
+        skipInventory
       )
       if (!deductResult.success) {
         message.error(deductResult.error || '记录打印失败')
         return
       }
       window.print()
-      message.success('打印任务已发送，库存已扣减')
+      message.success(skipInventory ? '打印任务已发送（未扣减库存）' : '打印任务已发送，库存已扣减')
     } catch {
       message.error('打印出错')
     } finally {
       setPrinting(false)
     }
-  }, [selectedProduct, quantity, printCount, templateType])
+  }, [selectedProduct, quantity, printCount, templateType, skipInventory])
 
   const columns = [
     { title: '物料号', dataIndex: 'code', key: 'code', width: 120 },
@@ -241,6 +244,14 @@ function PrintPage(): JSX.Element {
                   <Radio.Button value="large">大标签(箱)</Radio.Button>
                 </Radio.Group>
               </div>
+              <div>
+                <Checkbox
+                  checked={skipInventory}
+                  onChange={(e) => setSkipInventory(e.target.checked)}
+                >
+                  不计入库存（勾选后打印不扣减库存）
+                </Checkbox>
+              </div>
               <Button
                 type="primary"
                 icon={<PrinterOutlined />}
@@ -249,7 +260,9 @@ function PrintPage(): JSX.Element {
                 loading={printing}
                 block
               >
-                打印标签 ({printCount} 张) 并扣减库存
+                {skipInventory
+                  ? `打印标签 (${printCount} 张，不扣减库存)`
+                  : `打印标签 (${printCount} 张) 并扣减库存`}
               </Button>
             </Space>
           </Card>

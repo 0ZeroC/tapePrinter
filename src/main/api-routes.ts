@@ -354,14 +354,15 @@ router.put('/inventory/:productId', authMiddleware, inventoryViewMiddleware, (re
 
 router.post('/print', authMiddleware, (req: AuthRequest, res) => {
   try {
-    const { productId, quantity, printCount, labelType } = req.body
+    const { productId, quantity, printCount, labelType, skipInventory } = req.body
     printAndDeductInventory(
       productId,
       quantity,
       printCount,
       labelType || 'small',
       req.user!.userId,
-      req.user!.displayName
+      req.user!.displayName,
+      !!skipInventory
     )
     res.json(ok())
   } catch (err) {

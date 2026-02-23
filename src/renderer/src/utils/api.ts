@@ -209,11 +209,17 @@ export const api = {
     return request<InventoryLog[]>(`/inventory/logs${qs ? '?' + qs : ''}`)
   },
 
-  // Print
-  printAndDeduct: (productId: number, quantity: number, printCount: number, labelType: string) =>
+  // Print（skipInventory 为 true 时不扣减库存）
+  printAndDeduct: (
+    productId: number,
+    quantity: number,
+    printCount: number,
+    labelType: string,
+    skipInventory: boolean = false
+  ) =>
     request('/print', {
       method: 'POST',
-      body: JSON.stringify({ productId, quantity, printCount, labelType })
+      body: JSON.stringify({ productId, quantity, printCount, labelType, skipInventory })
     }),
 
   // File upload

@@ -19,6 +19,7 @@ mac:
   target:
     - dmg
 win:
+  signAndEditExecutable: false  # 禁用签名，避免在无管理员/开发人员模式时解压 winCodeSign 失败
   target:
     - nsis
 nsis:

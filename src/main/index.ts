@@ -1,10 +1,16 @@
-import { app, shell, BrowserWindow } from 'electron'
+import { app, shell, BrowserWindow, dialog } from 'electron'
 import { join } from 'path'
 import { initDatabase } from './database'
 import { startServer, getServerUrl, getLocalIP } from './server'
 
 const isDev = !app.isPackaged
 const SERVER_PORT = 3456
+
+function showErrorAndQuit(title: string, err: unknown): void {
+  const msg = err instanceof Error ? `${err.message}\n\n${err.stack}` : String(err)
+  dialog.showErrorBox(title, msg)
+  app.quit()
+}
 
 function createWindow(serverUrl: string): void {
   const ip = getLocalIP()
@@ -22,8 +28,21 @@ function createWindow(serverUrl: string): void {
     }
   })
 
+  mainWindow.on('page-title-updated', (event) => {
+    event.preventDefault()
+  })
+
   mainWindow.on('ready-to-show', () => {
     mainWindow.show()
+  })
+
+  mainWindow.webContents.on('did-fail-load', (_event, errorCode, errorDescription) => {
+    console.error('Page failed to load:', errorCode, errorDescription)
+    if (errorCode !== -3) {
+      setTimeout(() => {
+        mainWindow.loadURL(serverUrl)
+      }, 1000)
+    }
   })
 
   mainWindow.webContents.setWindowOpenHandler((details) => {
@@ -39,16 +58,35 @@ function createWindow(serverUrl: string): void {
 }
 
 app.whenReady().then(async () => {
-  initDatabase()
+  try {
+    initDatabase()
+  } catch (err) {
+    showErrorAndQuit('数据库初始化失败', err)
+    return
+  }
 
-  const rendererDir = isDev ? undefined : join(__dirname, '../renderer')
-  const serverUrl = await startServer(SERVER_PORT, rendererDir)
+  let serverUrl: string
+  try {
+    const rendererDir = isDev ? undefined : join(__dirname, '../renderer')
+    serverUrl = await startServer(SERVER_PORT, rendererDir)
+  } catch (err) {
+    showErrorAndQuit('服务器启动失败', err)
+    return
+  }
 
   createWindow(serverUrl)
 
   app.on('activate', function () {
     if (BrowserWindow.getAllWindows().length === 0) createWindow(getServerUrl())
   })
+})
+
+process.on('uncaughtException', (err) => {
+  showErrorAndQuit('未捕获的异常', err)
+})
+
+process.on('unhandledRejection', (reason) => {
+  showErrorAndQuit('未处理的Promise异常', reason)
 })
 
 app.on('window-all-closed', () => {

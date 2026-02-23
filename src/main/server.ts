@@ -33,7 +33,7 @@ export function startServer(port: number, staticDir?: string): Promise<string> {
 
     if (staticDir) {
       app.use(express.static(staticDir))
-      app.get('*', (_req, res) => {
+      app.get('/{*splat}', (_req, res) => {
         res.sendFile(join(staticDir, 'index.html'))
       })
     }

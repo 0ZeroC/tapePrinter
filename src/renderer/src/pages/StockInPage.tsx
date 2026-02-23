@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import {
   Input,
   Table,
@@ -10,9 +10,10 @@ import {
   Space,
   Descriptions,
   Tag,
-  Empty
+  Empty,
+  Select
 } from 'antd'
-import { SearchOutlined, ImportOutlined } from '@ant-design/icons'
+import { SearchOutlined, ImportOutlined, FilterOutlined } from '@ant-design/icons'
 import { api, type Product, type InventoryLog } from '../utils/api'
 import { useAuth } from '../contexts/AuthContext'
 
@@ -29,9 +30,35 @@ function StockInPage(): JSX.Element {
   const [submitting, setSubmitting] = useState(false)
   const [logs, setLogs] = useState<InventoryLog[]>([])
   const [logsLoading, setLogsLoading] = useState(false)
+  const [filterDateStart, setFilterDateStart] = useState('')
+  const [filterDateEnd, setFilterDateEnd] = useState('')
+  const [filterOperator, setFilterOperator] = useState<string>('')
+  const [filterKeyword, setFilterKeyword] = useState('')
   const searchInputRef = useRef<any>(null)
 
   const canViewInventory = user?.canViewInventory ?? false
+
+  const filteredLogs = useMemo(() => {
+    return logs.filter((log) => {
+      const dateStr = (log.created_at || '').slice(0, 10)
+      if (filterDateStart && dateStr < filterDateStart) return false
+      if (filterDateEnd && dateStr > filterDateEnd) return false
+      if (filterOperator && (log.operator_name || '') !== filterOperator) return false
+      if (filterKeyword.trim()) {
+        const kw = filterKeyword.trim().toLowerCase()
+        const code = (log.product_code || '').toLowerCase()
+        const name = (log.product_name || '').toLowerCase()
+        const remark = (log.remark || '').toLowerCase()
+        if (!code.includes(kw) && !name.includes(kw) && !remark.includes(kw)) return false
+      }
+      return true
+    })
+  }, [logs, filterDateStart, filterDateEnd, filterOperator, filterKeyword])
+
+  const operatorOptions = useMemo(() => {
+    const names = Array.from(new Set(logs.map((l) => l.operator_name).filter(Boolean))) as string[]
+    return names.sort().map((name) => ({ label: name, value: name }))
+  }, [logs])
 
   const loadLogs = useCallback(async () => {
     if (!canViewInventory) return
@@ -214,18 +241,76 @@ function StockInPage(): JSX.Element {
       {canViewInventory && (
         <Card
           size="small"
-          title="入库记录"
+          title={
+            <Space>
+              <FilterOutlined />
+              入库记录
+              {filteredLogs.length !== logs.length && (
+                <span style={{ fontWeight: 'normal', color: '#666', fontSize: 12 }}>
+                  （已筛选 {filteredLogs.length} / {logs.length} 条）
+                </span>
+              )}
+            </Space>
+          }
           style={{ flex: 1, overflow: 'auto' }}
           styles={{ body: { padding: 0 } }}
         >
+          <div style={{ padding: '12px 16px', borderBottom: '1px solid #f0f0f0', display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'center' }}>
+            <Space wrap size="small">
+              <span style={{ color: '#666' }}>时间：</span>
+              <Input
+                type="date"
+                value={filterDateStart}
+                onChange={(e) => setFilterDateStart(e.target.value)}
+                style={{ width: 140 }}
+                allowClear
+              />
+              <span style={{ color: '#999' }}>至</span>
+              <Input
+                type="date"
+                value={filterDateEnd}
+                onChange={(e) => setFilterDateEnd(e.target.value)}
+                style={{ width: 140 }}
+                allowClear
+              />
+              <span style={{ color: '#666', marginLeft: 8 }}>操作人：</span>
+              <Select
+                placeholder="全部"
+                allowClear
+                value={filterOperator || undefined}
+                onChange={(v) => setFilterOperator(v ?? '')}
+                options={[{ label: '全部', value: '' }, ...operatorOptions]}
+                style={{ width: 120 }}
+              />
+              <span style={{ color: '#666' }}>关键词：</span>
+              <Input
+                placeholder="编码/名称/备注"
+                value={filterKeyword}
+                onChange={(e) => setFilterKeyword(e.target.value)}
+                style={{ width: 160 }}
+                allowClear
+              />
+              <Button
+                size="small"
+                onClick={() => {
+                  setFilterDateStart('')
+                  setFilterDateEnd('')
+                  setFilterOperator('')
+                  setFilterKeyword('')
+                }}
+              >
+                清空筛选
+              </Button>
+            </Space>
+          </div>
           <Table
-            dataSource={logs}
+            dataSource={filteredLogs}
             columns={logColumns}
             rowKey="id"
             size="small"
             pagination={{ pageSize: 20, showSizeChanger: false }}
             loading={logsLoading}
-            locale={{ emptyText: <Empty description="暂无入库记录" /> }}
+            locale={{ emptyText: <Empty description={logs.length === 0 ? '暂无入库记录' : '无符合条件的记录'} /> }}
           />
         </Card>
       )}

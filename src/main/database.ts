@@ -522,33 +522,36 @@ export function printAndDeductInventory(
   printCount: number,
   labelType: string,
   operatorId: number,
-  operatorName: string
+  operatorName: string,
+  skipDeduct: boolean = false
 ): void {
   const totalDeduct = quantity * printCount
   const txn = db.transaction(() => {
-    // Deduct inventory (allow negative)
-    const existing = db.prepare('SELECT id FROM inventory WHERE product_id = ?').get(productId)
-    if (existing) {
+    if (!skipDeduct) {
+      // Deduct inventory (allow negative)
+      const existing = db.prepare('SELECT id FROM inventory WHERE product_id = ?').get(productId)
+      if (existing) {
+        db.prepare(
+          'UPDATE inventory SET quantity = quantity - ?, updated_at = CURRENT_TIMESTAMP WHERE product_id = ?'
+        ).run(totalDeduct, productId)
+      } else {
+        db.prepare('INSERT INTO inventory (product_id, quantity) VALUES (?, ?)').run(
+          productId,
+          -totalDeduct
+        )
+      }
+
       db.prepare(
-        'UPDATE inventory SET quantity = quantity - ?, updated_at = CURRENT_TIMESTAMP WHERE product_id = ?'
-      ).run(totalDeduct, productId)
-    } else {
-      db.prepare('INSERT INTO inventory (product_id, quantity) VALUES (?, ?)').run(
+        'INSERT INTO inventory_logs (product_id, type, quantity, remark, operator_id, operator_name) VALUES (?, ?, ?, ?, ?, ?)'
+      ).run(
         productId,
-        -totalDeduct
+        'out',
+        totalDeduct,
+        `[打印出库] ${printCount}张${labelType === 'small' ? '小标签' : '大标签'}, 每张${quantity}`,
+        operatorId,
+        operatorName
       )
     }
-
-    db.prepare(
-      'INSERT INTO inventory_logs (product_id, type, quantity, remark, operator_id, operator_name) VALUES (?, ?, ?, ?, ?, ?)'
-    ).run(
-      productId,
-      'out',
-      totalDeduct,
-      `[打印出库] ${printCount}张${labelType === 'small' ? '小标签' : '大标签'}, 每张${quantity}`,
-      operatorId,
-      operatorName
-    )
 
     db.prepare(
       'INSERT INTO print_logs (product_id, quantity, print_count, label_type, operator_id, operator_name) VALUES (?, ?, ?, ?, ?, ?)'
