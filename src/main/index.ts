@@ -67,7 +67,9 @@ app.whenReady().then(async () => {
 
   let serverUrl: string
   try {
-    const rendererDir = isDev ? undefined : join(__dirname, '../renderer')
+    const rendererDir = isDev
+      ? undefined
+      : join(__dirname, '../renderer').replace('app.asar', 'app.asar.unpacked')
     serverUrl = await startServer(SERVER_PORT, rendererDir)
   } catch (err) {
     showErrorAndQuit('服务器启动失败', err)

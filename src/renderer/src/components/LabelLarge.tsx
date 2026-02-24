@@ -41,32 +41,24 @@ function LabelLarge({ product, quantity, unit }: LabelLargeProps): JSX.Element {
       <div className="label-info">
         <div className="label-details">
           <div className="label-row">
-            <span className="label-field">物品名称：</span>
-            <span className="label-value">{product.name}</span>
+            <span className="label-field">物料编码：</span>
+            <span className="label-value">{product.code}</span>
           </div>
-          <div className="label-row">
-            <span className="label-field">规　　格：</span>
-            <span className="label-value">{product.spec || '-'}</span>
-          </div>
-          <div className="label-row">
-            <span className="label-field">等　　级：</span>
-            <span className="label-value">{product.grade || '-'}</span>
-          </div>
-          <div className="label-row">
-            <span className="label-field">表面处理：</span>
-            <span className="label-value">{product.surface_treatment || '-'}</span>
+          <div className="label-row label-row-desc">
+            <span className="label-field">物料描述：</span>
+            <span className="label-value label-desc-value">{product.description || '-'}</span>
           </div>
           {quantity && (
             <div className="label-row">
               <span className="label-field">数　　量：</span>
-              <span className="label-value" style={{ fontWeight: 'bold', fontSize: '16.5pt' }}>
+              <span className="label-value" style={{ fontWeight: 'bold', fontSize: '13pt' }}>
                 {quantity} {unit || '只'}
               </span>
             </div>
           )}
           <div className="label-row">
             <span className="label-field">日　　期：</span>
-            <span className="label-value" style={{ fontSize: '13pt' }}>{today}</span>
+            <span className="label-value" style={{ fontSize: '11pt' }}>{today}</span>
           </div>
         </div>
         <div className="label-right">

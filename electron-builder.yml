@@ -14,6 +14,7 @@ files:
 asarUnpack:
   - resources/**
   - node_modules/better-sqlite3/**
+  - out/renderer/**
 mac:
   notarize: false
   target:

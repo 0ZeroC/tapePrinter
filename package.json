@@ -1,6 +1,6 @@
 {
   "name": "tape-printer",
-  "version": "1.0.0",
+  "version": "2.1.0",
   "description": "标签打印桌面软件",
   "main": "./out/main/index.js",
   "scripts": {

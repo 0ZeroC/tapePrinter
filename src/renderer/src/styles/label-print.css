@@ -76,10 +76,12 @@
   .print-area .label-small .label-company,
   .print-area .label-small .label-field,
   .print-area .label-small .label-date-value,
+  .print-area .label-small .label-desc-value,
   .print-area .label-large .label-row,
   .print-area .label-large .label-title,
   .print-area .label-large .label-field,
-  .print-area .label-large .label-value {
+  .print-area .label-large .label-value,
+  .print-area .label-large .label-desc-value {
     font-weight: 900 !important;
     -webkit-text-stroke: 0.02em #000;
     text-stroke: 0.02em #000;
@@ -126,7 +128,7 @@
   align-items: center;
   justify-content: center;
   gap: 1mm;
-  font-size: 8pt;
+  font-size: 10pt;
   font-weight: bold;
   border-bottom: 0.3mm solid #000;
   padding-bottom: 0.5mm;
@@ -150,7 +152,7 @@
   display: flex;
   flex-direction: column;
   justify-content: center;
-  gap: 1mm;
+  gap: 1.5mm;
 }
 
 .label-small .label-row {
@@ -159,6 +161,17 @@
   padding: 0 0.5mm;
   line-height: 1.4;
   display: flex;
+}
+
+.label-small .label-row-desc {
+  flex-direction: column;
+  gap: 0.3mm;
+}
+
+.label-small .label-desc-value {
+  font-size: 8pt;
+  line-height: 1.3;
+  word-break: break-all;
 }
 
 .label-small .label-field {
@@ -204,15 +217,16 @@
    ============================== */
 
 .label-large {
-  width: 100mm;
+  width: 90mm;
   height: 70mm;
-  padding: 3mm;
+  padding: 2.5mm;
   border: 0.5mm solid #000;
   font-family: 'Microsoft YaHei', 'SimHei', sans-serif;
   font-weight: bold;
   display: flex;
   flex-direction: column;
   background: #fff;
+  overflow: hidden;
 }
 
 .label-large .label-title {
@@ -220,15 +234,15 @@
   align-items: center;
   justify-content: center;
   gap: 2mm;
-  font-size: 12pt;
+  font-size: 13pt;
   font-weight: bold;
   border-bottom: 0.5mm solid #000;
-  padding-bottom: 2mm;
-  margin-bottom: 2mm;
+  padding-bottom: 1.5mm;
+  margin-bottom: 1.5mm;
 }
 
 .label-large .label-logo {
-  height: 8mm;
+  height: 6.5mm;
   width: auto;
   object-fit: contain;
 }
@@ -236,7 +250,7 @@
 .label-large .label-info {
   flex: 1;
   display: flex;
-  gap: 3mm;
+  gap: 2mm;
 }
 
 .label-large .label-details {
@@ -246,13 +260,24 @@
 .label-large .label-row {
   display: flex;
   margin-bottom: 1.5mm;
-  font-size: 13.5pt;
+  font-size: 11pt;
   line-height: 1.4;
+}
+
+.label-large .label-row-desc {
+  flex-direction: column;
+  gap: 0.5mm;
+}
+
+.label-large .label-desc-value {
+  font-size: 12pt;
+  line-height: 1.3;
+  word-break: break-all;
 }
 
 .label-large .label-field {
   font-weight: bold;
-  min-width: 33mm;
+  min-width: 28mm;
   white-space: nowrap;
 }
 
@@ -266,14 +291,14 @@
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  width: 30mm;
+  width: 26mm;
   flex-shrink: 0;
-  gap: 2.4mm;
+  gap: 1.5mm;
 }
 
 .label-large .label-stamp {
-  width: 25.9mm;
-  height: 25.9mm;
+  width: 22mm;
+  height: 22mm;
   object-fit: contain;
 }
 
@@ -285,8 +310,8 @@
 }
 
 .label-large .label-qrcode img {
-  max-width: 25mm;
-  max-height: 25mm;
+  max-width: 21mm;
+  max-height: 21mm;
 }
 
 
