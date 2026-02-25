@@ -156,7 +156,7 @@ function UserManagePage(): JSX.Element {
     try {
       const result = await api.updateUser(record.id, { can_manage_data: checked })
       if (result.success) {
-        message.success(checked ? '已开启数据管理权限' : '已关闭数据管理权限')
+        message.success(checked ? '已开启修改物料库权限' : '已关闭修改物料库权限')
         loadUsers()
       } else {
         message.error(result.error || '更新失败')
@@ -190,7 +190,7 @@ function UserManagePage(): JSX.Element {
       )
     },
     {
-      title: '数据管理权限',
+      title: '修改物料库权限',
       key: 'can_manage_data',
       width: 130,
       render: (_: unknown, record: UserRecord) => (
@@ -310,7 +310,7 @@ function UserManagePage(): JSX.Element {
             <Switch checkedChildren="开启" unCheckedChildren="关闭" />
           </Form.Item>
           <Form.Item
-            label="数据管理权限"
+            label="修改物料库权限"
             name="can_manage_data"
             valuePropName="checked"
           >

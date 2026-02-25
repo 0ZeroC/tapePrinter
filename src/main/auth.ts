@@ -1,7 +1,7 @@
 import jwt from 'jsonwebtoken'
 import type { Request, Response, NextFunction } from 'express'
 
-const JWT_SECRET = 'tape-printer-secret-key-2024'
+const JWT_SECRET = 'inventory-management-secret-key-2024'
 const JWT_EXPIRES_IN = '24h'
 
 export interface JwtPayload {

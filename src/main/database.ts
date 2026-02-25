@@ -32,7 +32,7 @@ export interface User {
 }
 
 export function initDatabase(): void {
-  const dbPath = join(app.getPath('userData'), 'tape-printer.db')
+  const dbPath = join(app.getPath('userData'), 'inventory-management.db')
   db = new Database(dbPath)
 
   db.pragma('journal_mode = WAL')
@@ -512,6 +512,131 @@ export function deleteInventoryLogs(ids: number[]): number {
   const stmt = db.prepare(`DELETE FROM inventory_logs WHERE id IN (${placeholders})`)
   const result = stmt.run(...ids)
   return result.changes
+}
+
+export function revokeInventoryLog(logId: number): void {
+  const txn = db.transaction(() => {
+    const log = db.prepare('SELECT * FROM inventory_logs WHERE id = ?').get(logId) as InventoryLog | undefined
+    if (!log) throw new Error('记录不存在')
+
+    const existing = db.prepare('SELECT id FROM inventory WHERE product_id = ?').get(log.product_id)
+    if (log.type === 'in') {
+      if (existing) {
+        db.prepare(
+          'UPDATE inventory SET quantity = quantity - ?, updated_at = CURRENT_TIMESTAMP WHERE product_id = ?'
+        ).run(log.quantity, log.product_id)
+      } else {
+        db.prepare('INSERT INTO inventory (product_id, quantity) VALUES (?, ?)').run(
+          log.product_id, -log.quantity
+        )
+      }
+    } else {
+      if (existing) {
+        db.prepare(
+          'UPDATE inventory SET quantity = quantity + ?, updated_at = CURRENT_TIMESTAMP WHERE product_id = ?'
+        ).run(log.quantity, log.product_id)
+      } else {
+        db.prepare('INSERT INTO inventory (product_id, quantity) VALUES (?, ?)').run(
+          log.product_id, log.quantity
+        )
+      }
+    }
+
+    db.prepare('DELETE FROM inventory_logs WHERE id = ?').run(logId)
+  })
+  txn()
+}
+
+export function batchStockIn(
+  items: { code: string; quantity: number; remark: string }[],
+  operatorId?: number,
+  operatorName?: string
+): { success: number; failed: number; errors: string[] } {
+  let success = 0
+  let failed = 0
+  const errors: string[] = []
+
+  const findProduct = db.prepare('SELECT id FROM products WHERE code = ?')
+  const findInventory = db.prepare('SELECT id FROM inventory WHERE product_id = ?')
+  const insertInventory = db.prepare('INSERT INTO inventory (product_id, quantity) VALUES (?, ?)')
+  const addInventory = db.prepare(
+    'UPDATE inventory SET quantity = quantity + ?, updated_at = CURRENT_TIMESTAMP WHERE product_id = ?'
+  )
+  const insertLog = db.prepare(
+    'INSERT INTO inventory_logs (product_id, type, quantity, remark, operator_id, operator_name) VALUES (?, ?, ?, ?, ?, ?)'
+  )
+
+  const txn = db.transaction(() => {
+    for (const item of items) {
+      try {
+        if (!item.code) { failed++; errors.push('物料号为空，跳过'); continue }
+        const product = findProduct.get(item.code) as { id: number } | undefined
+        if (!product) { failed++; errors.push(`物料号「${item.code}」不存在`); continue }
+        const qty = Number(item.quantity)
+        if (isNaN(qty) || qty <= 0) { failed++; errors.push(`物料号「${item.code}」的数量无效`); continue }
+
+        const existing = findInventory.get(product.id)
+        if (existing) {
+          addInventory.run(qty, product.id)
+        } else {
+          insertInventory.run(product.id, qty)
+        }
+        insertLog.run(product.id, 'in', qty, item.remark || '[Excel批量入库]', operatorId ?? null, operatorName ?? '')
+        success++
+      } catch (err) {
+        failed++
+        errors.push(`物料号「${item.code}」入库失败: ${(err as Error).message}`)
+      }
+    }
+  })
+  txn()
+  return { success, failed, errors }
+}
+
+export function batchStockOut(
+  items: { code: string; quantity: number; remark: string }[],
+  operatorId?: number,
+  operatorName?: string
+): { success: number; failed: number; errors: string[] } {
+  let success = 0
+  let failed = 0
+  const errors: string[] = []
+
+  const findProduct = db.prepare('SELECT id FROM products WHERE code = ?')
+  const findInventory = db.prepare('SELECT id FROM inventory WHERE product_id = ?')
+  const insertInventory = db.prepare('INSERT INTO inventory (product_id, quantity) VALUES (?, ?)')
+  const subInventory = db.prepare(
+    'UPDATE inventory SET quantity = quantity - ?, updated_at = CURRENT_TIMESTAMP WHERE product_id = ?'
+  )
+  const insertLog = db.prepare(
+    'INSERT INTO inventory_logs (product_id, type, quantity, remark, operator_id, operator_name) VALUES (?, ?, ?, ?, ?, ?)'
+  )
+
+  const txn = db.transaction(() => {
+    for (const item of items) {
+      try {
+        if (!item.code) { failed++; errors.push('物料号为空，跳过'); continue }
+        const product = findProduct.get(item.code) as { id: number } | undefined
+        if (!product) { failed++; errors.push(`物料号「${item.code}」不存在`); continue }
+        const qty = Number(item.quantity)
+        if (isNaN(qty) || qty <= 0) { failed++; errors.push(`物料号「${item.code}」的数量无效`); continue }
+
+        const existing = findInventory.get(product.id)
+        if (existing) {
+          subInventory.run(qty, product.id)
+        } else {
+          insertInventory.run(product.id, -qty)
+        }
+        insertLog.run(product.id, 'out', qty, item.remark || '[Excel批量出库]', operatorId ?? null, operatorName ?? '')
+        success++
+      } catch (err) {
+        failed++
+        errors.push(`物料号「${item.code}」出库失败: ${(err as Error).message}`)
+      }
+    }
+  })
+  txn()
+  return { success, failed, errors }
 }
 
 export function getInventoryLogs(

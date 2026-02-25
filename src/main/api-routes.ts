@@ -17,6 +17,9 @@ import {
   importInventory,
   getInventoryLogs,
   deleteInventoryLogs,
+  revokeInventoryLog,
+  batchStockIn,
+  batchStockOut,
   printAndDeductInventory,
   verifyPassword,
   getAllUsers,
@@ -333,6 +336,44 @@ router.post('/inventory/stock-out', authMiddleware, (req: AuthRequest, res) => {
     const { productId, quantity, remark } = req.body
     stockOut(productId, quantity, remark, req.user!.userId, req.user!.displayName)
     res.json(ok())
+  } catch (err) {
+    res.json(fail((err as Error).message))
+  }
+})
+
+router.post('/inventory/logs/:id/revoke', authMiddleware, inventoryViewMiddleware, (req: AuthRequest, res) => {
+  try {
+    const id = parseInt(req.params.id)
+    revokeInventoryLog(id)
+    res.json(ok())
+  } catch (err) {
+    res.json(fail((err as Error).message))
+  }
+})
+
+router.post('/inventory/batch-stock-in', authMiddleware, (req: AuthRequest, res) => {
+  try {
+    const items = req.body as { code: string; quantity: number; remark: string }[]
+    if (!Array.isArray(items) || items.length === 0) {
+      res.json(fail('导入数据为空'))
+      return
+    }
+    const result = batchStockIn(items, req.user!.userId, req.user!.displayName)
+    res.json(ok(result))
+  } catch (err) {
+    res.json(fail((err as Error).message))
+  }
+})
+
+router.post('/inventory/batch-stock-out', authMiddleware, (req: AuthRequest, res) => {
+  try {
+    const items = req.body as { code: string; quantity: number; remark: string }[]
+    if (!Array.isArray(items) || items.length === 0) {
+      res.json(fail('导入数据为空'))
+      return
+    }
+    const result = batchStockOut(items, req.user!.userId, req.user!.displayName)
+    res.json(ok(result))
   } catch (err) {
     res.json(fail((err as Error).message))
   }

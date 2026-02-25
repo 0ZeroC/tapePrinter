@@ -215,6 +215,21 @@ export const api = {
       body: JSON.stringify({ ids })
     }),
 
+  revokeInventoryLog: (id: number) =>
+    request(`/inventory/logs/${id}/revoke`, { method: 'POST' }),
+
+  batchStockIn: (items: { code: string; quantity: number; remark: string }[]) =>
+    request<ImportResult>('/inventory/batch-stock-in', {
+      method: 'POST',
+      body: JSON.stringify(items)
+    }),
+
+  batchStockOut: (items: { code: string; quantity: number; remark: string }[]) =>
+    request<ImportResult>('/inventory/batch-stock-out', {
+      method: 'POST',
+      body: JSON.stringify(items)
+    }),
+
   // Print（skipInventory 为 true 时不扣减库存）
   printAndDeduct: (
     productId: number,

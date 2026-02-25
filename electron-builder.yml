@@ -1,6 +1,6 @@
-appId: com.tapePrinter.app
-productName: 标签打印软件
-executableName: TapePrinter
+appId: com.inventoryManagement.app
+productName: 库存管理系统
+executableName: InventoryManagement
 electronDownload:
   mirror: https://npmmirror.com/mirrors/electron/
 directories:

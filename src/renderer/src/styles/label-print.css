@@ -39,10 +39,20 @@
     print-color-adjust: exact !important;
   }
 
-  /* 去除页面边距 */
+  /* 去除页面边距，并为不同标签指定纸张尺寸 */
   @page {
     margin: 0;
     padding: 0;
+  }
+
+  @page small-label {
+    size: 50mm 40mm;
+    margin: 0;
+  }
+
+  @page large-label {
+    size: 90mm 70mm;
+    margin: 0;
   }
 
   /* 每个标签一页 */
@@ -58,6 +68,14 @@
   .print-area .label-small,
   .print-area .label-large {
     border: none !important;
+  }
+
+  /* 绑定命名页面，让浏览器自动匹配纸张尺寸 */
+  .print-area .label-small {
+    page: small-label;
+  }
+  .print-area .label-large {
+    page: large-label;
   }
 
   /*
@@ -111,7 +129,7 @@
    ============================== */
 
 .label-small {
-  width: 50mm;
+  width: 55mm;
   height: 40mm;
   padding: 1.5mm;
   border: 0.3mm solid #000;
@@ -234,7 +252,7 @@
   align-items: center;
   justify-content: center;
   gap: 2mm;
-  font-size: 13pt;
+  font-size: 13.5pt;
   font-weight: bold;
   border-bottom: 0.5mm solid #000;
   padding-bottom: 1.5mm;
@@ -242,7 +260,7 @@
 }
 
 .label-large .label-logo {
-  height: 6.5mm;
+  height: 7.5mm;
   width: auto;
   object-fit: contain;
 }
@@ -259,18 +277,22 @@
 
 .label-large .label-row {
   display: flex;
-  margin-bottom: 1.5mm;
-  font-size: 11pt;
+  margin-bottom: 3mm;
+  font-size: 11.5pt;
   line-height: 1.4;
+}
+
+.label-large .label-row:last-child {
+  margin-bottom: 0;
 }
 
 .label-large .label-row-desc {
   flex-direction: column;
-  gap: 0.5mm;
+  gap: 1mm;
 }
 
 .label-large .label-desc-value {
-  font-size: 12pt;
+  font-size: 12.5pt;
   line-height: 1.3;
   word-break: break-all;
 }

@@ -1,4 +1,4 @@
-import { app, shell, BrowserWindow, dialog } from 'electron'
+import { app, shell, BrowserWindow, dialog, ipcMain } from 'electron'
 import { join } from 'path'
 import { initDatabase } from './database'
 import { startServer, getServerUrl, getLocalIP } from './server'
@@ -21,7 +21,7 @@ function createWindow(serverUrl: string): void {
     minHeight: 600,
     show: false,
     autoHideMenuBar: true,
-    title: `标签打印软件 - 其他电脑请访问 http://${ip}:${SERVER_PORT}`,
+    title: `库存管理系统 - 其他电脑请访问 http://${ip}:${SERVER_PORT}`,
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       sandbox: false
@@ -57,6 +57,26 @@ function createWindow(serverUrl: string): void {
   }
 }
 
+const PAGE_SIZES: Record<string, { width: number; height: number }> = {
+  small: { width: 50000, height: 40000 },
+  large: { width: 90000, height: 70000 }
+}
+
+ipcMain.handle('print-label', async (event, templateType: string) => {
+  const win = BrowserWindow.fromWebContents(event.sender)
+  if (!win) throw new Error('找不到窗口')
+
+  const pageSize = PAGE_SIZES[templateType] ?? PAGE_SIZES.small
+
+  await win.webContents.print({
+    silent: false,
+    printBackground: true,
+    pageSize,
+    margins: { marginType: 'none' },
+    scaleFactor: 100
+  })
+})
+
 app.whenReady().then(async () => {
   try {
     initDatabase()
@@ -70,7 +90,8 @@ app.whenReady().then(async () => {
     const rendererDir = isDev
       ? undefined
       : join(__dirname, '../renderer').replace('app.asar', 'app.asar.unpacked')
-    serverUrl = await startServer(SERVER_PORT, rendererDir)
+    const viteDevUrl = isDev ? process.env['ELECTRON_RENDERER_URL'] : undefined
+    serverUrl = await startServer(SERVER_PORT, rendererDir, viteDevUrl)
   } catch (err) {
     showErrorAndQuit('服务器启动失败', err)
     return

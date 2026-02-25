@@ -14,10 +14,11 @@ import {
   Select,
   Dropdown
 } from 'antd'
-import { SearchOutlined, ExportOutlined, FilterOutlined, DownloadOutlined, DeleteOutlined, DownOutlined } from '@ant-design/icons'
+import { SearchOutlined, ExportOutlined, FilterOutlined, DownloadOutlined, DeleteOutlined, DownOutlined, UploadOutlined, UndoOutlined } from '@ant-design/icons'
 import * as XLSX from 'xlsx'
 import { api, type Product, type InventoryLog } from '../utils/api'
 import { useAuth } from '../contexts/AuthContext'
+import StockImportModal from '../components/StockImportModal'
 
 function StockOutPage(): JSX.Element {
   const { user } = useAuth()
@@ -40,6 +41,7 @@ function StockOutPage(): JSX.Element {
   const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([])
   const [currentPage, setCurrentPage] = useState(1)
   const [deleting, setDeleting] = useState(false)
+  const [importVisible, setImportVisible] = useState(false)
   const pageSize = 20
 
   const isAdmin = user?.role === 'admin'
@@ -181,6 +183,25 @@ function StockOutPage(): JSX.Element {
     message.success('导出成功')
   }, [filteredLogs])
 
+  const handleRevoke = useCallback((record: InventoryLog) => {
+    Modal.confirm({
+      title: '撤销出库记录',
+      content: `确定要撤销此条出库记录吗？将恢复库存 ${record.quantity}千（${record.product_code} ${record.product_name}）`,
+      okText: '确认撤销',
+      okType: 'danger',
+      cancelText: '取消',
+      onOk: async () => {
+        const result = await api.revokeInventoryLog(record.id)
+        if (result.success) {
+          message.success('撤销成功，库存已恢复')
+          loadLogs()
+        } else {
+          message.error(result.error || '撤销失败')
+        }
+      }
+    })
+  }, [loadLogs])
+
   const currentPageLogs = useMemo(() => {
     const start = (currentPage - 1) * pageSize
     return filteredLogs.slice(start, start + pageSize)
@@ -268,7 +289,17 @@ function StockOutPage(): JSX.Element {
       render: (val: number) => <Tag color="red">-{val}千</Tag>
     },
     { title: '操作人', dataIndex: 'operator_name', key: 'operator_name', width: 90 },
-    { title: '备注', dataIndex: 'remark', key: 'remark', ellipsis: true }
+    { title: '备注', dataIndex: 'remark', key: 'remark', ellipsis: true },
+    ...(canViewInventory ? [{
+      title: '操作',
+      key: 'action',
+      width: 70,
+      render: (_: unknown, record: InventoryLog) => (
+        <Button type="link" size="small" danger icon={<UndoOutlined />} onClick={() => handleRevoke(record)}>
+          撤销
+        </Button>
+      )
+    }] : [])
   ]
 
   return (
@@ -396,6 +427,13 @@ function StockOutPage(): JSX.Element {
               >
                 导出Excel
               </Button>
+              <Button
+                size="small"
+                icon={<UploadOutlined />}
+                onClick={() => setImportVisible(true)}
+              >
+                Excel导入出库
+              </Button>
               {isAdmin && (
                 <>
                   <Dropdown
@@ -510,6 +548,16 @@ function StockOutPage(): JSX.Element {
           </div>
         )}
       </Modal>
+
+      <StockImportModal
+        visible={importVisible}
+        type="out"
+        onSuccess={() => {
+          setImportVisible(false)
+          loadLogs()
+        }}
+        onCancel={() => setImportVisible(false)}
+      />
     </div>
   )
 }

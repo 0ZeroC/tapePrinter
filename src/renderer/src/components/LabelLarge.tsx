@@ -51,14 +51,14 @@ function LabelLarge({ product, quantity, unit }: LabelLargeProps): JSX.Element {
           {quantity && (
             <div className="label-row">
               <span className="label-field">数　　量：</span>
-              <span className="label-value" style={{ fontWeight: 'bold', fontSize: '13pt' }}>
+              <span className="label-value" style={{ fontWeight: 'bold', fontSize: '13.5pt' }}>
                 {quantity} {unit || '只'}
               </span>
             </div>
           )}
           <div className="label-row">
             <span className="label-field">日　　期：</span>
-            <span className="label-value" style={{ fontSize: '11pt' }}>{today}</span>
+            <span className="label-value" style={{ fontSize: '11.5pt', whiteSpace: 'nowrap' }}>{today}</span>
           </div>
         </div>
         <div className="label-right">

@@ -85,7 +85,11 @@ function PrintPage(): JSX.Element {
         message.error(deductResult.error || '记录打印失败')
         return
       }
-      window.print()
+      if (window.electronAPI?.printLabel) {
+        await window.electronAPI.printLabel(templateType)
+      } else {
+        window.print()
+      }
       const totalPieces = quantity * printCount
       const deductThousands = totalPieces / 1000
       message.success(

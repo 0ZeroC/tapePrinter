@@ -1,5 +1,6 @@
 import express from 'express'
 import cors from 'cors'
+import http from 'http'
 import { join } from 'path'
 import apiRoutes from './api-routes'
 import { networkInterfaces } from 'os'
@@ -22,7 +23,11 @@ export function getLocalIP(): string {
   return '127.0.0.1'
 }
 
-export function startServer(port: number, staticDir?: string): Promise<string> {
+export function startServer(
+  port: number,
+  staticDir?: string,
+  viteDevUrl?: string
+): Promise<string> {
   return new Promise((resolve, reject) => {
     const app = express()
 
@@ -35,6 +40,27 @@ export function startServer(port: number, staticDir?: string): Promise<string> {
       app.use(express.static(staticDir))
       app.get('/{*splat}', (_req, res) => {
         res.sendFile(join(staticDir, 'index.html'))
+      })
+    } else if (viteDevUrl) {
+      const vite = new URL(viteDevUrl)
+      app.use((req, res) => {
+        const proxyReq = http.request(
+          {
+            hostname: vite.hostname,
+            port: vite.port,
+            path: req.url,
+            method: req.method,
+            headers: req.headers
+          },
+          (proxyRes) => {
+            res.writeHead(proxyRes.statusCode!, proxyRes.headers)
+            proxyRes.pipe(res)
+          }
+        )
+        proxyReq.on('error', () => {
+          res.status(502).send('Vite dev server is not available')
+        })
+        req.pipe(proxyReq)
       })
     }
 
@@ -49,7 +75,7 @@ export function startServer(port: number, staticDir?: string): Promise<string> {
       if (err.code === 'EADDRINUSE') {
         console.log(`Port ${port} in use, trying ${port + 1}...`)
         server.close()
-        startServer(port + 1, staticDir).then(resolve).catch(reject)
+        startServer(port + 1, staticDir, viteDevUrl).then(resolve).catch(reject)
       } else {
         reject(err)
       }

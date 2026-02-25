@@ -36,7 +36,7 @@ function LoginPage(): JSX.Element {
       <Card style={{ width: 400, borderRadius: 12, boxShadow: '0 8px 24px rgba(0,0,0,0.15)' }}>
         <div style={{ textAlign: 'center', marginBottom: 32 }}>
           <Title level={3} style={{ marginBottom: 4 }}>
-            标签打印管理系统
+            库存管理系统
           </Title>
           <Text type="secondary">请输入账号密码登录</Text>
         </div>

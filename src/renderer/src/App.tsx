@@ -50,13 +50,13 @@ function App(): JSX.Element {
 
   const menuItems = [
     { key: 'print' as PageKey, icon: <PrinterOutlined />, label: '标签打印' },
-    { key: 'stockIn' as PageKey, icon: <ImportOutlined />, label: '入库明细' },
-    { key: 'stockOut' as PageKey, icon: <ExportOutlined />, label: '出库明细' },
+    { key: 'stockIn' as PageKey, icon: <ImportOutlined />, label: '入库' },
+    { key: 'stockOut' as PageKey, icon: <ExportOutlined />, label: '出库' },
     ...(user.canViewInventory
       ? [{ key: 'stock' as PageKey, icon: <AppstoreOutlined />, label: '库存' }]
       : []),
     ...(user.canManageData
-      ? [{ key: 'data' as PageKey, icon: <DatabaseOutlined />, label: '数据管理' }]
+      ? [{ key: 'data' as PageKey, icon: <DatabaseOutlined />, label: '物料库' }]
       : []),
     ...(user.role === 'admin'
       ? [{ key: 'users' as PageKey, icon: <TeamOutlined />, label: '用户管理' }]
@@ -134,7 +134,7 @@ function App(): JSX.Element {
             whiteSpace: 'nowrap'
           }}
         >
-          {collapsed ? '打印' : '标签打印软件'}
+          {collapsed ? '库存' : '库存管理系统'}
         </div>
         <Menu
           mode="inline"
