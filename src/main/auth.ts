@@ -11,6 +11,7 @@ export interface JwtPayload {
   role: 'admin' | 'user'
   canViewInventory: boolean
   canManageData: boolean
+  canManagePickingOrders: boolean
 }
 
 export function signToken(payload: JwtPayload): string {
@@ -64,6 +65,14 @@ export function inventoryViewMiddleware(req: AuthRequest, res: Response, next: N
 export function dataManageMiddleware(req: AuthRequest, res: Response, next: NextFunction): void {
   if (!req.user || (!req.user.canManageData && req.user.role !== 'admin')) {
     res.status(403).json({ success: false, error: '没有数据管理的权限' })
+    return
+  }
+  next()
+}
+
+export function pickingOrderManageMiddleware(req: AuthRequest, res: Response, next: NextFunction): void {
+  if (!req.user || (!req.user.canManagePickingOrders && req.user.role !== 'admin')) {
+    res.status(403).json({ success: false, error: '没有配货单管理的权限' })
     return
   }
   next()

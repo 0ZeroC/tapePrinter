@@ -279,8 +279,7 @@ function StockInPage(): JSX.Element {
   const logColumns = [
     { title: '时间', dataIndex: 'created_at', key: 'created_at', width: 170 },
     { title: '编码', dataIndex: 'product_code', key: 'product_code', width: 120 },
-    { title: '名称', dataIndex: 'product_name', key: 'product_name', width: 160 },
-    { title: '规格', dataIndex: 'product_spec', key: 'product_spec', width: 140 },
+    { title: '物料描述', dataIndex: 'product_description', key: 'product_description', width: 160, ellipsis: true },
     {
       title: '数量',
       dataIndex: 'quantity',

@@ -41,6 +41,7 @@ export interface InventoryLog {
   product_code?: string
   product_name?: string
   product_spec?: string
+  product_description?: string
 }
 
 export interface InventoryWithProduct {
@@ -64,6 +65,7 @@ export interface UserInfo {
   role: 'admin' | 'user'
   canViewInventory: boolean
   canManageData: boolean
+  canManagePickingOrders: boolean
 }
 
 export interface UserRecord {
@@ -73,8 +75,42 @@ export interface UserRecord {
   role: 'admin' | 'user'
   can_view_inventory: number
   can_manage_data: number
+  can_manage_picking_orders: number
   created_at: string
   updated_at: string
+}
+
+export interface PickingOrderItem {
+  id: number
+  order_no: string
+  seq_no: number
+  product_code: string
+  description: string
+  quantity: number
+  unit: string
+  unit_price_ex_tax: number
+  tax_rate: string
+  unit_price_inc_tax: number
+  total_amount: number
+  order_date: string
+  required_date: string
+  planner: string
+  project_name: string
+  required_factory: string
+  is_picked: number
+  picked_quantity: number | null
+  pick_remark: string
+  picked_at: string | null
+  picked_by: string
+  created_at: string
+  updated_at: string
+}
+
+export interface PickingConfirmResult {
+  success: number
+  failed: number
+  errors: string[]
+  inventoryErrors: string[]
 }
 
 function getToken(): string | null {
@@ -135,11 +171,12 @@ export const api = {
     role: string
     can_view_inventory: boolean
     can_manage_data: boolean
+    can_manage_picking_orders: boolean
   }) => request<UserRecord>('/users', { method: 'POST', body: JSON.stringify(data) }),
 
   updateUser: (
     id: number,
-    data: { display_name?: string; role?: string; can_view_inventory?: boolean; can_manage_data?: boolean; password?: string }
+    data: { display_name?: string; role?: string; can_view_inventory?: boolean; can_manage_data?: boolean; can_manage_picking_orders?: boolean; password?: string }
   ) => request<UserRecord>(`/users/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
 
   deleteUser: (id: number) => request(`/users/${id}`, { method: 'DELETE' }),
@@ -242,6 +279,31 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ productId, quantity, printCount, labelType, skipInventory })
     }),
+
+  // Picking Orders
+  getPickingOrderItems: (orderNo: string) =>
+    request<PickingOrderItem[]>(`/picking-orders?orderNo=${encodeURIComponent(orderNo)}`),
+
+  addPickingOrderItem: (item: Omit<PickingOrderItem, 'id' | 'is_picked' | 'picked_quantity' | 'pick_remark' | 'picked_at' | 'picked_by' | 'created_at' | 'updated_at'>) =>
+    request<PickingOrderItem>('/picking-orders', { method: 'POST', body: JSON.stringify(item) }),
+
+  updatePickingOrderItem: (id: number, data: Partial<Omit<PickingOrderItem, 'id' | 'is_picked' | 'picked_quantity' | 'pick_remark' | 'picked_at' | 'picked_by' | 'created_at' | 'updated_at'>>) =>
+    request<PickingOrderItem>(`/picking-orders/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+
+  deletePickingOrderItem: (id: number) =>
+    request(`/picking-orders/${id}`, { method: 'DELETE' }),
+
+  deletePickingOrderByOrderNo: (orderNo: string) =>
+    request<number>(`/picking-orders/by-order/${encodeURIComponent(orderNo)}`, { method: 'DELETE' }),
+
+  importPickingOrderItems: (items: Omit<PickingOrderItem, 'id' | 'is_picked' | 'picked_quantity' | 'pick_remark' | 'picked_at' | 'picked_by' | 'created_at' | 'updated_at'>[]) =>
+    request<ImportResult>('/picking-orders/import', { method: 'POST', body: JSON.stringify(items) }),
+
+  confirmPickingItems: (items: { id: number; pickedQty: number; remark: string }[]) =>
+    request<PickingConfirmResult>('/picking-orders/confirm-pick', { method: 'POST', body: JSON.stringify(items) }),
+
+  resetPickingItems: (ids: number[]) =>
+    request<number>('/picking-orders/reset-pick', { method: 'POST', body: JSON.stringify({ ids }) }),
 
   // File upload
   uploadExcel: (file: File) => {

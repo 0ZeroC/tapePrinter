@@ -9,7 +9,8 @@ import {
   TeamOutlined,
   UserOutlined,
   LogoutOutlined,
-  KeyOutlined
+  KeyOutlined,
+  UnorderedListOutlined
 } from '@ant-design/icons'
 import { useAuth } from './contexts/AuthContext'
 import { api } from './utils/api'
@@ -20,10 +21,11 @@ import StockInPage from './pages/StockInPage'
 import StockOutPage from './pages/StockOutPage'
 import StockPage from './pages/StockPage'
 import UserManagePage from './pages/UserManagePage'
+import PickingOrderPage from './pages/PickingOrderPage'
 
 const { Sider, Content } = Layout
 
-type PageKey = 'print' | 'data' | 'stockIn' | 'stockOut' | 'stock' | 'users'
+type PageKey = 'print' | 'data' | 'stockIn' | 'stockOut' | 'stock' | 'users' | 'pickingOrder'
 
 function App(): JSX.Element {
   const { user, loading, logout } = useAuth()
@@ -52,6 +54,7 @@ function App(): JSX.Element {
     { key: 'print' as PageKey, icon: <PrinterOutlined />, label: '标签打印' },
     { key: 'stockIn' as PageKey, icon: <ImportOutlined />, label: '入库' },
     { key: 'stockOut' as PageKey, icon: <ExportOutlined />, label: '出库' },
+    { key: 'pickingOrder' as PageKey, icon: <UnorderedListOutlined />, label: '配货单' },
     ...(user.canViewInventory
       ? [{ key: 'stock' as PageKey, icon: <AppstoreOutlined />, label: '库存' }]
       : []),
@@ -75,6 +78,8 @@ function App(): JSX.Element {
         return user.canViewInventory ? <StockPage /> : <PrintPage />
       case 'data':
         return user.canManageData ? <DataPage /> : <PrintPage />
+      case 'pickingOrder':
+        return <PickingOrderPage />
       case 'users':
         return user.role === 'admin' ? <UserManagePage /> : <PrintPage />
       default:
