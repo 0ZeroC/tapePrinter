@@ -113,6 +113,18 @@ export interface PickingConfirmResult {
   inventoryErrors: string[]
 }
 
+export type PickingConfirmItemPayload = {
+  id: number
+  pickedQty: number
+  remark: string
+  components?: { code: string; quantity: number }[]
+}
+
+export interface PickingSplitRow {
+  component_code: string
+  quantity_pieces: number
+}
+
 function getToken(): string | null {
   return localStorage.getItem('token')
 }
@@ -299,11 +311,14 @@ export const api = {
   importPickingOrderItems: (items: Omit<PickingOrderItem, 'id' | 'is_picked' | 'picked_quantity' | 'pick_remark' | 'picked_at' | 'picked_by' | 'created_at' | 'updated_at'>[]) =>
     request<ImportResult>('/picking-orders/import', { method: 'POST', body: JSON.stringify(items) }),
 
-  confirmPickingItems: (items: { id: number; pickedQty: number; remark: string }[]) =>
+  confirmPickingItems: (items: PickingConfirmItemPayload[]) =>
     request<PickingConfirmResult>('/picking-orders/confirm-pick', { method: 'POST', body: JSON.stringify(items) }),
 
   resetPickingItems: (ids: number[]) =>
     request<number>('/picking-orders/reset-pick', { method: 'POST', body: JSON.stringify({ ids }) }),
+
+  getPickingOrderSplits: (id: number) =>
+    request<PickingSplitRow[]>(`/picking-orders/${id}/splits`),
 
   // File upload
   uploadExcel: (file: File) => {

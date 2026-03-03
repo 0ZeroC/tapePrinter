@@ -167,6 +167,20 @@ export function initDatabase(): void {
     CREATE INDEX IF NOT EXISTS idx_picking_order_no ON picking_order_items(order_no);
   `)
 
+  // 拆分出库明细（按配货行保存子件及数量，供历史查询与还原）
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS picking_order_splits (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      picking_item_id INTEGER NOT NULL,
+      component_code TEXT NOT NULL,
+      quantity_pieces REAL NOT NULL,
+      created_at TEXT DEFAULT (datetime('now', 'localtime')),
+      updated_at TEXT DEFAULT (datetime('now', 'localtime')),
+      FOREIGN KEY (picking_item_id) REFERENCES picking_order_items(id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_picking_splits_item ON picking_order_splits(picking_item_id);
+  `)
+
   db.exec(`
     CREATE TABLE IF NOT EXISTS print_logs (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -985,7 +999,13 @@ export function importPickingOrderItems(
 }
 
 export function confirmPickingItems(
-  items: { id: number; pickedQty: number; remark: string; pickedBy: string }[],
+  items: {
+    id: number
+    pickedQty: number
+    remark: string
+    pickedBy: string
+    components?: { code: string; quantity: number }[]
+  }[],
   operatorId?: number,
   operatorName?: string
 ): { success: number; failed: number; errors: string[]; inventoryErrors: string[] } {
@@ -1010,6 +1030,12 @@ export function confirmPickingItems(
     WHERE id = ?
   `)
 
+  // 拆分明细表：同一配货行多次确认时，始终以最后一次为准，先清空再重新写入
+  const clearSplits = db.prepare('DELETE FROM picking_order_splits WHERE picking_item_id = ?')
+  const insertSplit = db.prepare(
+    'INSERT INTO picking_order_splits (picking_item_id, component_code, quantity_pieces) VALUES (?, ?, ?)'
+  )
+
   const txn = db.transaction(() => {
     for (const item of items) {
       const pickItem = getItem.get(item.id) as PickingOrderItem | undefined
@@ -1023,28 +1049,88 @@ export function confirmPickingItems(
         errors.push(`${pickItem.product_code} 序号${pickItem.seq_no} 已出库，跳过`)
         continue
       }
-      const qty = item.pickedQty > 0 ? item.pickedQty : pickItem.quantity
-      const product = findProduct.get(pickItem.product_code) as { id: number } | undefined
-      if (product) {
-        const existing = findInventory.get(product.id)
-        if (existing) {
-          subInventory.run(qty, product.id)
-        } else {
-          insertInventory.run(product.id, -qty)
+
+      const components = Array.isArray(item.components)
+        ? item.components.filter(
+            (c) => c && typeof c.code === 'string' && !isNaN(Number(c.quantity)) && Number(c.quantity) > 0
+          )
+        : []
+
+      if (components.length > 0) {
+        // 先清空该配货行的历史拆分记录，再写入本次的子件明细
+        clearSplits.run(pickItem.id)
+
+        for (const comp of components) {
+          const compProduct = findProduct.get(comp.code) as { id: number } | undefined
+          const qtyCompPieces = Number(comp.quantity)
+          const qtyCompThousands = qtyCompPieces / 1000
+
+          // 按“只”保存到拆分明细表，便于历史还原
+          insertSplit.run(pickItem.id, comp.code, qtyCompPieces)
+
+          if (compProduct) {
+            const existing = findInventory.get(compProduct.id)
+            if (existing) {
+              subInventory.run(qtyCompThousands, compProduct.id)
+            } else {
+              insertInventory.run(compProduct.id, -qtyCompThousands)
+            }
+            const baseRemark = `[配货拆出库] 单号${pickItem.order_no} 序号${pickItem.seq_no} 原编码${pickItem.product_code} -> 子件${comp.code} 数量${qtyCompPieces}只=${qtyCompThousands}千`
+            const remarkText = item.remark ? `${baseRemark}; ${item.remark}` : baseRemark
+            insertLog.run(
+              compProduct.id,
+              'out',
+              qtyCompThousands,
+              remarkText,
+              operatorId ?? null,
+              operatorName ?? ''
+            )
+          } else {
+            inventoryErrors.push(
+              `物料「${comp.code}」(拆分自单号${pickItem.order_no} 序号${pickItem.seq_no}) 不在库存系统中，已标记配货但未扣减库存`
+            )
+          }
         }
-        const remarkText = item.remark
-          ? `[配货出库] ${item.remark}`
-          : `[配货出库] 单号${pickItem.order_no}`
-        insertLog.run(product.id, 'out', qty, remarkText, operatorId ?? null, operatorName ?? '')
+        const qty = item.pickedQty > 0 ? item.pickedQty : pickItem.quantity
+        markPicked.run(qty, item.remark || '', item.pickedBy, item.id)
+        success++
       } else {
-        inventoryErrors.push(`物料「${pickItem.product_code}」不在库存系统中，已标记配货但未扣减库存`)
+        // 普通出库：如果之前有拆分记录，这里视为回退拆分，清空历史拆分明细
+        clearSplits.run(pickItem.id)
+
+        const qty = item.pickedQty > 0 ? item.pickedQty : pickItem.quantity
+        const product = findProduct.get(pickItem.product_code) as { id: number } | undefined
+        if (product) {
+          const existing = findInventory.get(product.id)
+          if (existing) {
+            subInventory.run(qty, product.id)
+          } else {
+            insertInventory.run(product.id, -qty)
+          }
+          const remarkText = item.remark
+            ? `[配货出库] ${item.remark}`
+            : `[配货出库] 单号${pickItem.order_no}`
+          insertLog.run(product.id, 'out', qty, remarkText, operatorId ?? null, operatorName ?? '')
+        } else {
+          inventoryErrors.push(`物料「${pickItem.product_code}」不在库存系统中，已标记配货但未扣减库存`)
+        }
+        markPicked.run(qty, item.remark || '', item.pickedBy, item.id)
+        success++
       }
-      markPicked.run(qty, item.remark || '', item.pickedBy, item.id)
-      success++
     }
   })
   txn()
   return { success, failed, errors, inventoryErrors }
+}
+
+// 查询某一配货行的历史拆分明细（按“只”为单位）
+export function getPickingOrderSplits(
+  pickingItemId: number
+): { component_code: string; quantity_pieces: number }[] {
+  const stmt = db.prepare(
+    'SELECT component_code, quantity_pieces FROM picking_order_splits WHERE picking_item_id = ? ORDER BY id ASC'
+  )
+  return stmt.all(pickingItemId) as { component_code: string; quantity_pieces: number }[]
 }
 
 export function resetPickingItems(ids: number[]): number {

@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from 'react'
+import { useState, useRef, useCallback, useEffect } from 'react'
 import {
   Input,
   Button,
@@ -27,7 +27,7 @@ import {
   ReloadOutlined
 } from '@ant-design/icons'
 import * as XLSX from 'xlsx'
-import { api, type PickingOrderItem } from '../utils/api'
+import { api, type PickingOrderItem, type Product, type PickingSplitRow } from '../utils/api'
 import { useAuth } from '../contexts/AuthContext'
 
 const { Text } = Typography
@@ -37,9 +37,28 @@ interface EditState {
   remark: string
 }
 
-function PickingOrderPage(): JSX.Element {
+interface SplitRow {
+  id: string
+  product: Product
+  quantity: number
+}
+
+interface PickingOrderPageProps {
+  onOpenPrintLabel?: (payload: {
+    productCode: string
+    orderNo: string
+    projectName: string
+    quantity: number
+    unit: string
+  }) => void
+  initialOrderNo?: string
+  onOrderLoaded?: (orderNo: string) => void
+}
+
+function PickingOrderPage({ onOpenPrintLabel, initialOrderNo, onOrderLoaded }: PickingOrderPageProps): JSX.Element {
   const { user } = useAuth()
-  const canManage = user?.canManagePickingOrders ?? false
+  // 只有具有“查看库存”权限的用户，才允许在配货单中进行新增、编辑、删除等管理操作
+  const canManage = user?.canViewInventory ?? false
 
   const [orderNoInput, setOrderNoInput] = useState('')
   const [currentOrderNo, setCurrentOrderNo] = useState('')
@@ -48,6 +67,16 @@ function PickingOrderPage(): JSX.Element {
   const [editMap, setEditMap] = useState<Record<number, EditState>>({})
   const [selectedIds, setSelectedIds] = useState<number[]>([])
   const [confirming, setConfirming] = useState(false)
+
+  // Split modal
+  const [splitModalOpen, setSplitModalOpen] = useState(false)
+  const [splitTargetItem, setSplitTargetItem] = useState<PickingOrderItem | null>(null)
+  const [splitSearchText, setSplitSearchText] = useState('')
+  const [splitSearchResults, setSplitSearchResults] = useState<Product[]>([])
+  const [splitSearchLoading, setSplitSearchLoading] = useState(false)
+  const [splitRows, setSplitRows] = useState<SplitRow[]>([])
+  const [splitRemark, setSplitRemark] = useState('')
+  const [splitSubmitting, setSplitSubmitting] = useState(false)
 
   // Add/Edit modal
   const [itemModalOpen, setItemModalOpen] = useState(false)
@@ -77,8 +106,9 @@ function PickingOrderPage(): JSX.Element {
           setOrderItems([])
           setCurrentOrderNo('')
         } else {
+          const trimmed = orderNo.trim()
           setOrderItems(result.data)
-          setCurrentOrderNo(orderNo.trim())
+          setCurrentOrderNo(trimmed)
           const initMap: Record<number, EditState> = {}
           result.data.forEach((item) => {
             initMap[item.id] = {
@@ -88,6 +118,9 @@ function PickingOrderPage(): JSX.Element {
           })
           setEditMap(initMap)
           setSelectedIds([])
+          if (trimmed) {
+            onOrderLoaded?.(trimmed)
+          }
         }
       } else {
         message.error(result.error || '查询失败')
@@ -97,11 +130,18 @@ function PickingOrderPage(): JSX.Element {
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [onOrderLoaded])
 
   const handleSearch = useCallback(() => {
     loadOrder(orderNoInput)
   }, [orderNoInput, loadOrder])
+
+  useEffect(() => {
+    if (!initialOrderNo) return
+    if (currentOrderNo) return
+    setOrderNoInput(initialOrderNo)
+    loadOrder(initialOrderNo)
+  }, [initialOrderNo, currentOrderNo, loadOrder])
 
   const handleConfirmPick = useCallback(async () => {
     if (selectedIds.length === 0) {
@@ -263,6 +303,167 @@ function PickingOrderPage(): JSX.Element {
     }
   }, [editingItem, itemForm, currentOrderNo, loadOrder])
 
+  const handleOpenSplitModal = useCallback((record: PickingOrderItem) => {
+    setSplitTargetItem(record)
+    setSplitModalOpen(true)
+    setSplitSearchText('')
+    setSplitSearchResults([])
+    // 打开时先清空当前拆分明细，随后根据历史记录自动还原
+    setSplitRows([])
+    setSplitRemark(record.pick_remark || '')
+
+    // 从后端查询历史拆分明细（无论是否已出库，都按 id 查询）
+    api.getPickingOrderSplits(record.id).then((res) => {
+      if (!res.success || !res.data) return
+      const rows: SplitRow[] = (res.data as PickingSplitRow[]).map((r, index) => ({
+        id: `${record.id}-${r.component_code}-${index}`,
+        product: {
+          // 这里只需要编码和描述，其他字段占位即可
+          id: 0,
+          code: r.component_code,
+          description: r.component_code,
+          name: '',
+          spec: '',
+          grade: '',
+          surface_treatment: '',
+          material: '',
+          special_note: '',
+          created_at: '',
+          updated_at: ''
+        } as Product,
+        quantity: r.quantity_pieces
+      }))
+      if (rows.length > 0) {
+        setSplitRows(rows)
+      }
+    })
+  }, [])
+
+  const handleCloseSplitModal = useCallback(() => {
+    setSplitModalOpen(false)
+    setSplitTargetItem(null)
+    setSplitSearchText('')
+    setSplitSearchResults([])
+  }, [])
+
+  const handleSplitSearch = useCallback(async (value?: string) => {
+    const query = (value ?? splitSearchText).trim()
+    if (!query) {
+      setSplitSearchResults([])
+      return
+    }
+    setSplitSearchLoading(true)
+    try {
+      const result = await api.searchProducts(query)
+      if (result.success && result.data) {
+        setSplitSearchResults(result.data)
+      } else {
+        message.error(result.error || '搜索失败')
+      }
+    } catch {
+      message.error('搜索出错')
+    } finally {
+      setSplitSearchLoading(false)
+    }
+  }, [splitSearchText])
+
+  const handleAddSplitProduct = useCallback((product: Product) => {
+    setSplitRows((prev) => [
+      ...prev,
+      {
+        id: `${product.id}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        product,
+        quantity: 1
+      }
+    ])
+  }, [])
+
+  const handleSplitQuantityChange = useCallback((rowId: string, value: number | null) => {
+    setSplitRows((prev) =>
+      prev.map((row) =>
+        row.id === rowId
+          ? { ...row, quantity: typeof value === 'number' && value > 0 ? value : 1 }
+          : row
+      )
+    )
+  }, [])
+
+  const handleRemoveSplitRow = useCallback((rowId: string) => {
+    setSplitRows((prev) => prev.filter((row) => row.id !== rowId))
+  }, [])
+
+  const handleConfirmSplit = useCallback(async () => {
+    if (!splitTargetItem) {
+      return
+    }
+    if (splitRows.length === 0) {
+      message.warning('请先新增拆分后的物料')
+      return
+    }
+    const validRows = splitRows.filter((r) => typeof r.quantity === 'number' && r.quantity > 0)
+    if (validRows.length === 0) {
+      message.warning('拆分物料的出库数量必须大于 0')
+      return
+    }
+    const totalSplitPieces = validRows.reduce((sum, r) => sum + r.quantity, 0)
+    setSplitSubmitting(true)
+    try {
+      const result = await api.confirmPickingItems([
+        {
+          id: splitTargetItem.id,
+          pickedQty: totalSplitPieces,
+          remark: splitRemark || `拆分出库：原编码 ${splitTargetItem.product_code}`,
+          components: validRows.map((r) => ({
+            code: r.product.code,
+            quantity: r.quantity
+          }))
+        }
+      ])
+      if (result.success && result.data) {
+        const { success, failed, errors, inventoryErrors } = result.data
+        if (success > 0) {
+          message.success('拆分出库成功')
+        }
+        if (failed > 0) {
+          Modal.warning({
+            title: '部分出库失败',
+            content: (
+              <div>
+                {errors.map((e, i) => (
+                  <div key={i} style={{ fontSize: 12 }}>
+                    {e}
+                  </div>
+                ))}
+              </div>
+            )
+          })
+        }
+        if (inventoryErrors.length > 0) {
+          Modal.info({
+            title: '以下物料不在库存系统中（已标记配货，未扣减库存）',
+            content: (
+              <div style={{ maxHeight: 200, overflow: 'auto' }}>
+                {inventoryErrors.map((e, i) => (
+                  <div key={i} style={{ fontSize: 12 }}>
+                    {e}
+                  </div>
+                ))}
+              </div>
+            )
+          })
+        }
+        handleCloseSplitModal()
+        loadOrder(currentOrderNo)
+      } else {
+        message.error(result.error || '拆分出库失败')
+      }
+    } catch {
+      message.error('拆分出库出错')
+    } finally {
+      setSplitSubmitting(false)
+    }
+  }, [splitTargetItem, splitRows, splitRemark, handleCloseSplitModal, loadOrder, currentOrderNo])
+
   // Excel import logic
   const handleImportFile = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
@@ -352,6 +553,23 @@ function PickingOrderPage(): JSX.Element {
   const validCountImport = importPreview.filter(r => r._valid).length
   const invalidCountImport = importPreview.filter(r => !r._valid).length
 
+  const handleOpenPrintLabel = useCallback(
+    (record: PickingOrderItem) => {
+      if (!onOpenPrintLabel) {
+        message.warning('当前环境不支持打标签跳转')
+        return
+      }
+      onOpenPrintLabel({
+        productCode: record.product_code,
+        orderNo: record.order_no,
+        projectName: record.project_name,
+        quantity: record.quantity,
+        unit: record.unit || '只'
+      })
+    },
+    [onOpenPrintLabel]
+  )
+
   const columns = [
     {
       title: '序号',
@@ -373,6 +591,31 @@ function PickingOrderPage(): JSX.Element {
       key: 'description',
       width: 220,
       ellipsis: true
+    },
+    {
+      title: '拆',
+      key: 'split',
+      width: 120,
+      align: 'center' as const,
+      render: (_: unknown, record: PickingOrderItem) =>
+        canManage ? (
+          <Space size="small">
+            <Button
+              type="link"
+              size="small"
+              onClick={() => handleOpenSplitModal(record)}
+            >
+              拆
+            </Button>
+            <Button
+              type="link"
+              size="small"
+              onClick={() => handleOpenPrintLabel(record)}
+            >
+              打标签
+            </Button>
+          </Space>
+        ) : null
     },
     {
       title: '应出数量',
@@ -455,7 +698,7 @@ function PickingOrderPage(): JSX.Element {
     {
       title: '操作',
       key: 'action',
-      width: canManage ? 120 : 70,
+      width: canManage ? 140 : 70,
       render: (_: unknown, record: PickingOrderItem) => (
         <Space size="small">
           {canManage && (
@@ -738,6 +981,157 @@ function PickingOrderPage(): JSX.Element {
           <div style={{ textAlign: 'center', padding: '32px 0' }}>
             <CheckCircleOutlined style={{ fontSize: 48, color: '#52c41a', marginBottom: 16 }} />
             <div><Text style={{ fontSize: 16 }}>导入完成</Text></div>
+          </div>
+        )}
+      </Modal>
+
+      {/* Split picking modal */}
+      <Modal
+        title={
+          splitTargetItem
+            ? `拆分配货 - 单号 ${splitTargetItem.order_no} 序号 ${splitTargetItem.seq_no}`
+            : '拆分配货'
+        }
+        open={splitModalOpen}
+        onCancel={handleCloseSplitModal}
+        footer={null}
+        width={900}
+        destroyOnClose
+      >
+        {splitTargetItem && (
+          <div style={{ marginTop: 8 }}>
+            <Alert
+              type="info"
+              showIcon
+              message="拆分说明"
+              description={
+                <div style={{ fontSize: 12, lineHeight: 1.8 }}>
+                  <div>原物料不扣减库存，下方选择的物料将实际扣减库存。</div>
+                  <div>
+                    原编码：<Text code>{splitTargetItem.product_code}</Text>，描述：
+                    {splitTargetItem.description || '-'}，应出数量：{splitTargetItem.quantity}
+                    {splitTargetItem.unit && (
+                      <Text type="secondary" style={{ marginLeft: 4 }}>
+                        {splitTargetItem.unit}
+                      </Text>
+                    )}
+                  </div>
+                </div>
+              }
+              style={{ marginBottom: 12 }}
+            />
+
+            <Card size="small" title="搜索并选择实际出库物料" style={{ marginBottom: 12 }}>
+              <Input.Search
+                placeholder="多条件搜索，用空格分隔，如：5783 10*20"
+                value={splitSearchText}
+                onChange={(e) => setSplitSearchText(e.target.value)}
+                onSearch={handleSplitSearch}
+                enterButton={<><SearchOutlined /> 搜索</>}
+                loading={splitSearchLoading}
+              />
+              <div style={{ marginTop: 8 }}>
+                <Table
+                  size="small"
+                  rowKey="id"
+                  dataSource={splitSearchResults}
+                  pagination={false}
+                  scroll={{ y: 200 }}
+                  columns={[
+                    { title: '物料号', dataIndex: 'code', key: 'code', width: 120 },
+                    { title: '物料描述', dataIndex: 'description', key: 'description', ellipsis: true },
+                    {
+                      title: '操作',
+                      key: 'action',
+                      width: 80,
+                      render: (_: unknown, record: Product) => (
+                        <Button type="link" size="small" onClick={() => handleAddSplitProduct(record)}>
+                          选择
+                        </Button>
+                      )
+                    }
+                  ]}
+                />
+              </div>
+            </Card>
+
+            <Card
+              size="small"
+              title="拆分后的出库明细"
+              extra={
+                <span style={{ fontSize: 12 }}>
+                  原应出：{splitTargetItem.quantity}{splitTargetItem.unit || ''}，已分配合计：
+                  {splitRows.reduce((sum, r) => sum + (r.quantity || 0), 0)}只
+                  （≈ {splitRows.reduce((sum, r) => sum + (r.quantity || 0), 0) / 1000}千）
+                </span>
+              }
+            >
+              <Table
+                size="small"
+                rowKey="id"
+                dataSource={splitRows}
+                pagination={false}
+                locale={{ emptyText: '请在上方搜索并选择实际出库物料' }}
+                columns={[
+                  {
+                    title: '编码',
+                    dataIndex: ['product', 'code'],
+                    key: 'code',
+                    width: 140,
+                    render: (_: unknown, row: SplitRow) => <Text code style={{ fontSize: 12 }}>{row.product.code}</Text>
+                  },
+                  {
+                    title: '物料描述',
+                    dataIndex: ['product', 'description'],
+                    key: 'description',
+                    ellipsis: true,
+                    render: (_: unknown, row: SplitRow) => row.product.description
+                  },
+                  {
+                    title: '出库数量（只）',
+                    key: 'quantity',
+                    width: 140,
+                    render: (_: unknown, row: SplitRow) => (
+                      <InputNumber
+                        size="small"
+                        min={1}
+                        step={1}
+                        value={row.quantity}
+                        onChange={(v) => handleSplitQuantityChange(row.id, v)}
+                        style={{ width: 120 }}
+                      />
+                    )
+                  },
+                  {
+                    title: '操作',
+                    key: 'action',
+                    width: 80,
+                    render: (_: unknown, row: SplitRow) => (
+                      <Button type="link" size="small" danger onClick={() => handleRemoveSplitRow(row.id)}>
+                        删除
+                      </Button>
+                    )
+                  }
+                ]}
+              />
+
+              <div style={{ marginTop: 12 }}>
+                <Input
+                  placeholder="备注（选填，如：拆分原因、使用位置等）"
+                  value={splitRemark}
+                  onChange={(e) => setSplitRemark(e.target.value)}
+                />
+              </div>
+
+              <div style={{ marginTop: 16, textAlign: 'right' }}>
+                <Space>
+                  <Button onClick={handleCloseSplitModal}>取消</Button>
+                  <Button type="primary" onClick={handleConfirmSplit} loading={splitSubmitting}>
+                    确认保存并出库
+                  </Button>
+                </Space>
+              </div>
+            </Card>
           </div>
         )}
       </Modal>

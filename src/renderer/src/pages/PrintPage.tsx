@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from 'react'
+import { useState, useRef, useCallback, useEffect } from 'react'
 import {
   Input,
   Table,
@@ -32,7 +32,19 @@ const LABEL_FONT_SIZE_MAP: Record<LabelExtraFontSize, number> = {
   large: 14
 }
 
-function PrintPage(): JSX.Element {
+interface PrintPagePreset {
+  productCode?: string
+  orderNo?: string
+  projectName?: string
+  quantity?: number
+  unit?: string
+}
+
+interface PrintPageProps {
+  preset?: PrintPagePreset | null
+}
+
+function PrintPage({ preset }: PrintPageProps): JSX.Element {
   const { user } = useAuth()
   const [searchText, setSearchText] = useState('')
   const [searchResults, setSearchResults] = useState<Product[]>([])
@@ -73,6 +85,28 @@ function PrintPage(): JSX.Element {
       setLoading(false)
     }
   }, [])
+
+  useEffect(() => {
+    if (!preset) return
+    if (preset.productCode) {
+      setSearchText(preset.productCode)
+      // 自动按物料号搜索并选中
+      handleSearch(preset.productCode)
+    }
+    if (preset.orderNo) {
+      setOrderNo(preset.orderNo)
+    }
+    if (preset.projectName) {
+      setProjectName(preset.projectName)
+    }
+    if (typeof preset.quantity === 'number' && preset.quantity > 0) {
+      setQuantity(preset.quantity)
+    }
+    // 从配货单过来的打标签默认不扣减库存
+    setSkipInventory(true)
+    // 默认用大标签，显示订单号和工程名称
+    setTemplateType('large')
+  }, [preset, handleSearch])
 
   const handlePrint = useCallback(async () => {
     if (!selectedProduct) {

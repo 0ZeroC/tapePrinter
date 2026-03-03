@@ -37,6 +37,7 @@ import {
   importPickingOrderItems,
   confirmPickingItems,
   resetPickingItems,
+  getPickingOrderSplits,
   type Product
 } from './database'
 import {
@@ -537,7 +538,12 @@ router.post('/picking-orders/import', authMiddleware, pickingOrderManageMiddlewa
 
 router.post('/picking-orders/confirm-pick', authMiddleware, (req: AuthRequest, res) => {
   try {
-    const items = req.body as { id: number; pickedQty: number; remark: string }[]
+    const items = req.body as {
+      id: number
+      pickedQty: number
+      remark: string
+      components?: { code: string; quantity: number }[]
+    }[]
     if (!Array.isArray(items) || items.length === 0) {
       res.json(fail('请选择要出库的物料'))
       return
@@ -562,6 +568,20 @@ router.post('/picking-orders/reset-pick', authMiddleware, pickingOrderManageMidd
     }
     const count = resetPickingItems(ids)
     res.json(ok(count))
+  } catch (err) {
+    res.json(fail((err as Error).message))
+  }
+})
+
+router.get('/picking-orders/:id/splits', authMiddleware, (req, res) => {
+  try {
+    const id = parseInt(req.params.id)
+    if (Number.isNaN(id)) {
+      res.json(fail('ID 无效'))
+      return
+    }
+    const rows = getPickingOrderSplits(id)
+    res.json(ok(rows))
   } catch (err) {
     res.json(fail((err as Error).message))
   }

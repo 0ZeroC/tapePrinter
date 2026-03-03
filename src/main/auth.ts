@@ -71,8 +71,9 @@ export function dataManageMiddleware(req: AuthRequest, res: Response, next: Next
 }
 
 export function pickingOrderManageMiddleware(req: AuthRequest, res: Response, next: NextFunction): void {
-  if (!req.user || (!req.user.canManagePickingOrders && req.user.role !== 'admin')) {
-    res.status(403).json({ success: false, error: '没有配货单管理的权限' })
+  // 只有具有“查看库存”权限（或管理员）的用户，才允许在配货单中执行新增、编辑、删除等操作
+  if (!req.user || (!req.user.canViewInventory && req.user.role !== 'admin')) {
+    res.status(403).json({ success: false, error: '没有查看库存的权限，无法管理配货单' })
     return
   }
   next()

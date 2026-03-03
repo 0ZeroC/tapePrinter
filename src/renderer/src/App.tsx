@@ -27,6 +27,14 @@ const { Sider, Content } = Layout
 
 type PageKey = 'print' | 'data' | 'stockIn' | 'stockOut' | 'stock' | 'users' | 'pickingOrder'
 
+interface PrintPreset {
+  productCode?: string
+  orderNo?: string
+  projectName?: string
+  quantity?: number
+  unit?: string
+}
+
 function App(): JSX.Element {
   const { user, loading, logout } = useAuth()
   const [currentPage, setCurrentPage] = useState<PageKey>('print')
@@ -34,6 +42,8 @@ function App(): JSX.Element {
   const [pwdModalOpen, setPwdModalOpen] = useState(false)
   const [pwdForm] = Form.useForm()
   const [pwdLoading, setPwdLoading] = useState(false)
+  const [printPreset, setPrintPreset] = useState<PrintPreset | null>(null)
+  const [lastPickingOrderNo, setLastPickingOrderNo] = useState<string>('')
   const {
     token: { colorBgContainer, borderRadiusLG }
   } = theme.useToken()
@@ -66,10 +76,25 @@ function App(): JSX.Element {
       : [])
   ]
 
+  const handleOpenPrintFromPicking = (payload: {
+    productCode: string
+    orderNo: string
+    projectName: string
+    quantity: number
+    unit: string
+  }): void => {
+    setPrintPreset(payload)
+    setCurrentPage('print')
+  }
+
+  const handlePickingOrderLoaded = (orderNo: string): void => {
+    setLastPickingOrderNo(orderNo)
+  }
+
   const renderPage = (): JSX.Element => {
     switch (currentPage) {
       case 'print':
-        return <PrintPage />
+        return <PrintPage preset={printPreset} />
       case 'stockIn':
         return <StockInPage />
       case 'stockOut':
@@ -79,7 +104,13 @@ function App(): JSX.Element {
       case 'data':
         return user.canManageData ? <DataPage /> : <PrintPage />
       case 'pickingOrder':
-        return <PickingOrderPage />
+        return (
+          <PickingOrderPage
+            onOpenPrintLabel={handleOpenPrintFromPicking}
+            initialOrderNo={lastPickingOrderNo}
+            onOrderLoaded={handlePickingOrderLoaded}
+          />
+        )
       case 'users':
         return user.role === 'admin' ? <UserManagePage /> : <PrintPage />
       default:
