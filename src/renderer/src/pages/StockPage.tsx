@@ -152,7 +152,15 @@ function StockPage(): JSX.Element {
 
   const columns = [
     { title: '物料号', dataIndex: 'code', key: 'code', width: 120 },
-    { title: '物料描述', dataIndex: 'description', key: 'description', width: 140 },
+    {
+      title: '物料描述',
+      dataIndex: 'description',
+      key: 'description',
+      width: 260,
+      render: (text: string) => (
+        <span style={{ whiteSpace: 'nowrap' }}>{text || '-'}</span>
+      )
+    },
     { title: '物品名称', dataIndex: 'name', key: 'name', width: 140 },
     { title: '规格', dataIndex: 'spec', key: 'spec', width: 120 },
     { title: '等级', dataIndex: 'grade', key: 'grade', width: 70 },
@@ -230,6 +238,7 @@ function StockPage(): JSX.Element {
           }}
           loading={loading}
           locale={{ emptyText: <Empty description="暂无库存数据" /> }}
+          scroll={{ x: 'max-content' }}
         />
       </Card>
 

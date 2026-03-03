@@ -207,9 +207,11 @@ function DataPage(): JSX.Element {
       title: '物料描述',
       dataIndex: 'description',
       key: 'description',
-      width: 260,
-      ellipsis: true,
-      render: (text: string) => text || <span style={{ color: '#ccc' }}>-</span>
+      width: 320,
+      render: (text: string) =>
+        text
+          ? <span style={{ whiteSpace: 'nowrap' }}>{text}</span>
+          : <span style={{ color: '#ccc' }}>-</span>
     },
     {
       title: '物品名称',
@@ -375,7 +377,7 @@ function DataPage(): JSX.Element {
             showSizeChanger: true,
             pageSizeOptions: ['20', '50', '100', '200']
           }}
-          scroll={{ y: 'calc(100vh - 340px)' }}
+          scroll={{ y: 'calc(100vh - 340px)', x: 'max-content' }}
         />
       </Card>
 

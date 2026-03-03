@@ -135,7 +135,7 @@ function StockInPage(): JSX.Element {
 
   const handleStockIn = useCallback(async () => {
     if (!selectedProduct) return
-    if (quantity < 1) {
+    if (typeof quantity !== 'number' || quantity <= 0 || Number.isNaN(quantity)) {
       message.warning('请输入有效的数量')
       return
     }
@@ -279,7 +279,14 @@ function StockInPage(): JSX.Element {
   const logColumns = [
     { title: '时间', dataIndex: 'created_at', key: 'created_at', width: 170 },
     { title: '编码', dataIndex: 'product_code', key: 'product_code', width: 120 },
-    { title: '物料描述', dataIndex: 'product_description', key: 'product_description', width: 160, ellipsis: true },
+    {
+      title: '物料描述',
+      dataIndex: 'product_description',
+      key: 'product_description',
+      render: (text: any) => (
+        <span style={{ whiteSpace: 'normal', wordBreak: 'break-all' }}>{text}</span>
+      )
+    },
     {
       title: '数量',
       dataIndex: 'quantity',

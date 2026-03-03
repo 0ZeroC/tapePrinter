@@ -24,6 +24,13 @@ import '../styles/label-print.css'
 const { Title } = Typography
 
 type TemplateType = 'small' | 'large'
+type LabelExtraFontSize = 'small' | 'medium' | 'large'
+
+const LABEL_FONT_SIZE_MAP: Record<LabelExtraFontSize, number> = {
+  small: 10,
+  medium: 12,
+  large: 14
+}
 
 function PrintPage(): JSX.Element {
   const { user } = useAuth()
@@ -34,6 +41,10 @@ function PrintPage(): JSX.Element {
   const [unit, setUnit] = useState<string>('只')
   const [printCount, setPrintCount] = useState<number>(1)
   const [templateType, setTemplateType] = useState<TemplateType>('small')
+  const [orderNo, setOrderNo] = useState<string>('')
+  const [projectName, setProjectName] = useState<string>('')
+  const [labelTextFontSize, setLabelTextFontSize] = useState<LabelExtraFontSize>('medium')
+  const [labelDescFontSize, setLabelDescFontSize] = useState<LabelExtraFontSize>('medium')
   const [skipInventory, setSkipInventory] = useState(false)
   const [loading, setLoading] = useState(false)
   const [printing, setPrinting] = useState(false)
@@ -103,6 +114,42 @@ function PrintPage(): JSX.Element {
       setPrinting(false)
     }
   }, [selectedProduct, quantity, printCount, templateType, skipInventory])
+
+  const fetchProjectNameByOrderNo = useCallback(
+    async (value: string) => {
+      const trimmed = value.trim()
+      if (!trimmed) {
+        return
+      }
+      try {
+        const result = await api.getPickingOrderItems(trimmed)
+        if (!result.success) {
+          message.error(result.error || '查询配货单失败')
+          return
+        }
+        const data = result.data || []
+        if (data.length === 0) {
+          message.warning(`未找到单号「${trimmed}」的配货单`)
+          return
+        }
+        const names = Array.from(
+          new Set(
+            data
+              .map((item) => (item.project_name || '').trim())
+              .filter((n) => n.length > 0)
+          )
+        )
+        if (names.length > 0) {
+          setProjectName(names[0])
+        } else {
+          message.info('该单号的配货单中未设置工程名称')
+        }
+      } catch {
+        message.error('查询配货单出错')
+      }
+    },
+    [setProjectName]
+  )
 
   const columns = [
     { title: '物料号', dataIndex: 'code', key: 'code', width: 120 },
@@ -262,6 +309,59 @@ function PrintPage(): JSX.Element {
                   <Radio.Button value="large">大标签(箱)</Radio.Button>
                 </Radio.Group>
               </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                <div style={{ display: 'flex', alignItems: 'center' }}>
+                  <span style={{ marginRight: 8, fontWeight: 500 }}>订单号：</span>
+                  <Input
+                    value={orderNo}
+                    onChange={(e) => setOrderNo(e.target.value)}
+                    onBlur={() => fetchProjectNameByOrderNo(orderNo)}
+                    onPressEnter={() => fetchProjectNameByOrderNo(orderNo)}
+                    style={{ width: 260 }}
+                    placeholder="可选，打印在大标签上"
+                  />
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center' }}>
+                  <span style={{ marginRight: 8, fontWeight: 500 }}>工程名称：</span>
+                  <Input
+                    value={projectName}
+                    onChange={(e) => setProjectName(e.target.value)}
+                    style={{ width: 260 }}
+                    placeholder="可选，打印在大标签上"
+                  />
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
+                  <div style={{ display: 'flex', alignItems: 'center' }}>
+                    <span style={{ marginRight: 8, fontWeight: 500 }}>订单/工程字号：</span>
+                    <Select
+                      value={labelTextFontSize}
+                      onChange={setLabelTextFontSize}
+                      style={{ width: 180 }}
+                      options={[
+                        { value: 'small', label: '小（10pt）' },
+                        { value: 'medium', label: '中（12pt）' },
+                        { value: 'large', label: '大（14pt）' }
+                      ]}
+                    />
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center' }}>
+                    <span style={{ marginRight: 8, fontWeight: 500 }}>描述字号：</span>
+                    <Select
+                      value={labelDescFontSize}
+                      onChange={setLabelDescFontSize}
+                      style={{ width: 180 }}
+                      options={[
+                        { value: 'small', label: '小（10pt）' },
+                        { value: 'medium', label: '中（12pt）' },
+                        { value: 'large', label: '大（14pt）' }
+                      ]}
+                    />
+                  </div>
+                  <span style={{ marginLeft: 6, color: '#999', fontSize: 12 }}>
+                    （订单/工程字号用于订单号和工程名称，描述字号用于物料描述内容）
+                  </span>
+                </div>
+              </div>
               <div>
                 <Checkbox
                   checked={skipInventory}
@@ -301,7 +401,15 @@ function PrintPage(): JSX.Element {
                     {templateType === 'small' ? (
                       <LabelSmall product={selectedProduct} quantity={quantity} unit={unit} />
                     ) : (
-                      <LabelLarge product={selectedProduct} quantity={quantity} unit={unit} />
+                      <LabelLarge
+                        product={selectedProduct}
+                        quantity={quantity}
+                        unit={unit}
+                        orderNo={orderNo}
+                        projectName={projectName}
+                        textFontSizePt={LABEL_FONT_SIZE_MAP[labelTextFontSize]}
+                        descFontSizePt={LABEL_FONT_SIZE_MAP[labelDescFontSize]}
+                      />
                     )}
                   </div>
                 ))}

@@ -8,9 +8,21 @@ interface LabelLargeProps {
   product: Product
   quantity?: number
   unit?: string
+  orderNo?: string
+  projectName?: string
+  textFontSizePt?: number
+  descFontSizePt?: number
 }
 
-function LabelLarge({ product, quantity, unit }: LabelLargeProps): JSX.Element {
+function LabelLarge({
+  product,
+  quantity,
+  unit,
+  orderNo,
+  projectName,
+  textFontSizePt,
+  descFontSizePt
+}: LabelLargeProps): JSX.Element {
   const [qrDataUrl, setQrDataUrl] = useState<string>('')
 
   // 当天日期
@@ -18,6 +30,15 @@ function LabelLarge({ product, quantity, unit }: LabelLargeProps): JSX.Element {
     const d = new Date()
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
   }, [])
+
+  const extraTextFontSize = useMemo(
+    () => (textFontSizePt && textFontSizePt > 0 ? textFontSizePt : 11.5),
+    [textFontSizePt]
+  )
+  const descFontSize = useMemo(
+    () => (descFontSizePt && descFontSizePt > 0 ? descFontSizePt : 12.5),
+    [descFontSizePt]
+  )
 
   // 生成二维码（只包含物品编码）
   useEffect(() => {
@@ -41,12 +62,29 @@ function LabelLarge({ product, quantity, unit }: LabelLargeProps): JSX.Element {
       <div className="label-info">
         <div className="label-details">
           <div className="label-row">
+            <span className="label-field">订单号：</span>
+            <span className="label-value" style={{ fontSize: `${extraTextFontSize}pt` }}>
+              {orderNo || '-'}
+            </span>
+          </div>
+          <div className="label-row">
+            <span className="label-field">工程名称：</span>
+            <span className="label-value" style={{ fontSize: `${extraTextFontSize}pt` }}>
+              {projectName || '-'}
+            </span>
+          </div>
+          <div className="label-row">
             <span className="label-field">物料编码：</span>
             <span className="label-value">{product.code}</span>
           </div>
           <div className="label-row label-row-desc">
             <span className="label-field">物料描述：</span>
-            <span className="label-value label-desc-value">{product.description || '-'}</span>
+            <span
+              className="label-value label-desc-value"
+              style={{ fontSize: `${descFontSize}pt` }}
+            >
+              {product.description || '-'}
+            </span>
           </div>
           {quantity && (
             <div className="label-row">
