@@ -464,6 +464,83 @@ tapePrinter/
 │           └── assets/              # 静态资源（logo、印章图片等）
 ```
 
+## 系统架构与模块分工
+
+### 整体架构
+
+下图展示了本系统在局域网中的整体架构，以及各端之间的关系：
+
+```mermaid
+graph LR
+  subgraph Server["服务端电脑（运行本软件）"]
+    EMain["Electron 主进程\nsrc/main/index.ts"]
+    Express["Express HTTP 服务\nsrc/main/server.ts"]
+    DB["SQLite 数据库\nsrc/main/database.ts"]
+    Renderer["本机渲染进程 React 应用\nsrc/renderer/src"]
+  end
+
+  subgraph Clients["其他员工电脑"]
+    Browser["浏览器访问 React 前端\n(由 Express 提供静态资源)"]
+  end
+
+  Renderer <--> Express
+  Browser  <--> Express
+  Express  <--> DB
+  EMain    <--> Renderer
+  EMain    -.->|"IPC 打印"| Printer["系统打印机"]
+```
+
+- **Electron 主进程（`src/main`）**：负责创建窗口、集成 Express 服务器、管理应用生命周期与打印功能。
+- **Express 服务（`src/main/server.ts`）**：对外暴露 REST API、静态前端文件以及文件上传接口。
+- **数据库层（`src/main/database.ts`）**：封装所有 SQLite 读写，包括产品、库存、日志、用户等表。
+- **预加载脚本（`src/preload`）**：通过 `contextBridge` 将安全的打印相关能力暴露给渲染进程。
+- **前端 React 应用（`src/renderer/src`）**：实现登录、标签打印、入库/出库、库存、物料库、用户管理等业务页面。
+
+### 后端模块分工（主进程 & HTTP 服务）
+
+```mermaid
+graph TD
+  Request["HTTP 请求\n(浏览器 / 本机渲染进程)"]
+  APIRoutes["api-routes.ts\n路由与参数校验"]
+  Auth["auth.ts\nJWT 认证 & 权限中间件"]
+  DB["database.ts\nSQLite 读写"]
+
+  Request --> APIRoutes
+  APIRoutes --> Auth
+  Auth --> DB
+```
+
+- **`api-routes.ts`**：集中定义所有业务路由（登录、产品、库存、日志、用户管理等），负责参数解析与基础校验。
+- **`auth.ts`**：统一处理登录鉴权（JWT）与权限控制（库存查看权限、数据管理权限、管理员权限等）。
+- **`database.ts`**：提供一组高层 API（如「入库」「出库」「调整库存」「记录日志」），路由层只关心业务含义，不直接写 SQL。
+
+### 前端模块分工（渲染进程）
+
+```mermaid
+graph TD
+  Main["main.tsx\n应用入口"]
+  App["App.tsx\n布局 & 路由"]
+  Pages["pages/*Page.tsx\n业务页面"]
+  Components["components/*\n复用组件（标签、表单、弹窗等）"]
+  Context["contexts/AuthContext.tsx\n全局登录 / 用户状态"]
+  API["utils/api.ts\nREST API 封装"]
+  Styles["styles/*.css\n样式 & 打印样式"]
+
+  Main --> App
+  App  --> Pages
+  Pages --> Components
+  Pages --> API
+  Pages --> Context
+  Components --> Styles
+```
+
+- **`App.tsx`**：承担整体布局（侧边栏 + 顶部）与路由切换，决定显示哪个业务页面。
+- **`pages/*Page.tsx`**：对应侧边栏的每一个功能入口（登录、标签打印、入库、出库、库存、物料库、用户管理），只聚焦页面业务逻辑。
+- **`components/*`**：承载可复用 UI 组件（如大/小标签组件、Excel 导入弹窗、库存导入弹窗、产品表单等）。
+- **`utils/api.ts`**：统一封装所有 HTTP 请求，页面层仅调用函数（如 `login`、`fetchProducts`、`createStockIn` 等）。
+- **`contexts/AuthContext.tsx`**：集中管理登录状态与当前用户信息，配合路由守卫控制页面访问。
+- **`styles/label-print.css`**：专门用于标签打印的样式，确保不同打印机下仍有一致布局。
+
 ## 数据存储
 
 - 数据库文件：SQLite 数据库自动存储在系统用户数据目录下
