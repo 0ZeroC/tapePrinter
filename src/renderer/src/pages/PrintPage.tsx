@@ -1,7 +1,6 @@
 import { useState, useRef, useCallback, useEffect } from 'react'
 import {
   Input,
-  Table,
   Button,
   InputNumber,
   Radio,
@@ -15,10 +14,11 @@ import {
   Checkbox
 } from 'antd'
 import { SearchOutlined, PrinterOutlined } from '@ant-design/icons'
+import ResizableTable from '../components/ResizableTable'
 import { api, type Product } from '../utils/api'
 import { useAuth } from '../contexts/AuthContext'
 import LabelSmall from '../components/LabelSmall'
-import LabelLarge from '../components/LabelLarge'
+import LabelLarge, { type CombinedLabelItem } from '../components/LabelLarge'
 import '../styles/label-print.css'
 
 const { Title } = Typography
@@ -38,6 +38,7 @@ interface PrintPagePreset {
   projectName?: string
   quantity?: number
   unit?: string
+  combinedItems?: CombinedLabelItem[]
 }
 
 interface PrintPageProps {
@@ -60,6 +61,7 @@ function PrintPage({ preset }: PrintPageProps): JSX.Element {
   const [skipInventory, setSkipInventory] = useState(false)
   const [loading, setLoading] = useState(false)
   const [printing, setPrinting] = useState(false)
+  const [combinedItems, setCombinedItems] = useState<CombinedLabelItem[] | null>(null)
   const searchInputRef = useRef<any>(null)
 
   const handleSearch = useCallback(async (value: string) => {
@@ -88,6 +90,19 @@ function PrintPage({ preset }: PrintPageProps): JSX.Element {
 
   useEffect(() => {
     if (!preset) return
+
+    // 处理来自配货单的“拼箱大标签”预设
+    if (preset.combinedItems && preset.combinedItems.length > 0) {
+      setCombinedItems(preset.combinedItems)
+      setOrderNo(preset.orderNo ?? '')
+      setProjectName(preset.projectName ?? '')
+      // 拼箱标签只打印大标签，且默认不扣减库存
+      setTemplateType('large')
+      setSkipInventory(true)
+    } else {
+      setCombinedItems(null)
+    }
+
     if (preset.productCode) {
       setSearchText(preset.productCode)
       // 自动按物料号搜索并选中
@@ -102,10 +117,12 @@ function PrintPage({ preset }: PrintPageProps): JSX.Element {
     if (typeof preset.quantity === 'number' && preset.quantity > 0) {
       setQuantity(preset.quantity)
     }
-    // 从配货单过来的打标签默认不扣减库存
-    setSkipInventory(true)
-    // 默认用大标签，显示订单号和工程名称
-    setTemplateType('large')
+    // 从配货单过来的普通打标签默认不扣减库存
+    if (!preset.combinedItems || preset.combinedItems.length === 0) {
+      setSkipInventory(true)
+      // 默认用大标签，显示订单号和工程名称
+      setTemplateType('large')
+    }
   }, [preset, handleSearch])
 
   const handlePrint = useCallback(async () => {
@@ -253,7 +270,7 @@ function PrintPage({ preset }: PrintPageProps): JSX.Element {
         }}
         styles={{ body: { padding: 0, flex: 1, overflow: 'hidden' } }}
       >
-        <Table
+        <ResizableTable
           dataSource={searchResults}
           columns={columns}
           rowKey="id"
@@ -437,12 +454,13 @@ function PrintPage({ preset }: PrintPageProps): JSX.Element {
                     ) : (
                       <LabelLarge
                         product={selectedProduct}
-                        quantity={quantity}
-                        unit={unit}
+                        quantity={combinedItems ? undefined : quantity}
+                        unit={combinedItems ? undefined : unit}
                         orderNo={orderNo}
                         projectName={projectName}
                         textFontSizePt={LABEL_FONT_SIZE_MAP[labelTextFontSize]}
                         descFontSizePt={LABEL_FONT_SIZE_MAP[labelDescFontSize]}
+                        combinedItems={combinedItems || undefined}
                       />
                     )}
                   </div>

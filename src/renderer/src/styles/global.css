@@ -35,3 +35,34 @@ body {
 ::-webkit-scrollbar-thumb:hover {
   background: #bfbfbf;
 }
+
+/* 可调节列宽表格 - 列边拖拽手柄 */
+.resizable-table-handle {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 8px;
+  height: 100%;
+  cursor: col-resize;
+  z-index: 1;
+}
+.resizable-table-handle:hover {
+  background: rgba(22, 119, 255, 0.15);
+}
+.resizable-table-handle::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  right: 3px;
+  width: 2px;
+  height: 16px;
+  margin-top: -8px;
+  background: #d9d9d9;
+  border-radius: 1px;
+}
+
+/* 可调节列宽表格 - 内容自动换行 */
+.resizable-table .ant-table-cell {
+  white-space: normal;
+  word-break: break-word;
+}

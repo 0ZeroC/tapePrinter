@@ -125,6 +125,13 @@ export interface PickingSplitRow {
   quantity_pieces: number
 }
 
+export interface PickingOrderSummary {
+  order_no: string
+  total_count: number
+  picked_count: number
+  pending_count: number
+}
+
 function getToken(): string | null {
   return localStorage.getItem('token')
 }
@@ -296,6 +303,22 @@ export const api = {
   getPickingOrderItems: (orderNo: string) =>
     request<PickingOrderItem[]>(`/picking-orders?orderNo=${encodeURIComponent(orderNo)}`),
 
+  getPickingOrderList: () =>
+    request<PickingOrderSummary[]>('/picking-orders/order-list'),
+
+  getPickingOrderExportData: (orderNos?: string[]) =>
+    request<PickingOrderItem[]>(
+      orderNos?.length
+        ? `/picking-orders/export-data?orderNos=${orderNos.map(encodeURIComponent).join(',')}`
+        : '/picking-orders/export-data'
+    ),
+
+  batchDeletePickingOrders: (orderNos: string[]) =>
+    request<number>('/picking-orders/batch-delete', { method: 'POST', body: JSON.stringify({ orderNos }) }),
+
+  deleteAllPickingOrders: () =>
+    request<number>('/picking-orders/all', { method: 'DELETE' }),
+
   addPickingOrderItem: (item: Omit<PickingOrderItem, 'id' | 'is_picked' | 'picked_quantity' | 'pick_remark' | 'picked_at' | 'picked_by' | 'created_at' | 'updated_at'>) =>
     request<PickingOrderItem>('/picking-orders', { method: 'POST', body: JSON.stringify(item) }),
 
@@ -308,8 +331,14 @@ export const api = {
   deletePickingOrderByOrderNo: (orderNo: string) =>
     request<number>(`/picking-orders/by-order/${encodeURIComponent(orderNo)}`, { method: 'DELETE' }),
 
-  importPickingOrderItems: (items: Omit<PickingOrderItem, 'id' | 'is_picked' | 'picked_quantity' | 'pick_remark' | 'picked_at' | 'picked_by' | 'created_at' | 'updated_at'>[]) =>
-    request<ImportResult>('/picking-orders/import', { method: 'POST', body: JSON.stringify(items) }),
+  importPickingOrderItems: (
+    items: Omit<PickingOrderItem, 'id' | 'is_picked' | 'picked_quantity' | 'pick_remark' | 'picked_at' | 'picked_by' | 'created_at' | 'updated_at'>[],
+    overwriteMode?: boolean
+  ) =>
+    request<ImportResult>('/picking-orders/import', {
+      method: 'POST',
+      body: JSON.stringify({ items, overwriteMode: !!overwriteMode })
+    }),
 
   confirmPickingItems: (items: PickingConfirmItemPayload[]) =>
     request<PickingConfirmResult>('/picking-orders/confirm-pick', { method: 'POST', body: JSON.stringify(items) }),

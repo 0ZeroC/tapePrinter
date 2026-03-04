@@ -587,11 +587,48 @@ export function deleteInventoryLogs(ids: number[]): number {
   return result.changes
 }
 
-export function revokeInventoryLog(logId: number): void {
+/**
+ * 撤销库存日志
+ * 若该条为配货拆出库（remark 含 [配货拆出库]），则：
+ * - 一并撤销该拆分对应的所有子件出库记录
+ * - 恢复所有子件库存
+ * - 重置配货单中对应行的已出库状态
+ */
+export function revokeInventoryLog(
+  logId: number,
+  operatorId?: number,
+  operatorName?: string
+): void {
   const txn = db.transaction(() => {
     const log = db.prepare('SELECT * FROM inventory_logs WHERE id = ?').get(logId) as InventoryLog | undefined
     if (!log) throw new Error('记录不存在')
 
+    // 配货拆出库：按单号+序号找到配货行，恢复全部子件并重置配货状态
+    if (log.type === 'out' && (log.remark || '').includes('[配货拆出库]')) {
+      const m = (log.remark || '').match(/\[配货拆出库\]\s*单号([^\s]+)\s+序号(\d+)/)
+      if (m) {
+        const orderNo = m[1]
+        const seqNo = parseInt(m[2], 10)
+        const pickItem = db.prepare(
+          'SELECT id FROM picking_order_items WHERE order_no = ? AND seq_no = ? AND is_picked = 1'
+        ).get(orderNo, seqNo) as { id: number } | undefined
+        if (pickItem) {
+          resetPickingItems([pickItem.id], operatorId, operatorName)
+          const orderMarker = '单号' + orderNo
+          const seqMarker = '序号' + seqNo + ' '
+          const relatedLogs = db.prepare(
+            `SELECT id FROM inventory_logs WHERE type = 'out' AND remark LIKE '%[配货拆出库]%' 
+             AND instr(remark, ?) > 0 AND instr(remark, ?) > 0`
+          ).all(orderMarker, seqMarker) as { id: number }[]
+          for (const r of relatedLogs) {
+            db.prepare('DELETE FROM inventory_logs WHERE id = ?').run(r.id)
+          }
+          return
+        }
+      }
+    }
+
+    // 普通撤销：仅撤销单条
     const existing = db.prepare('SELECT id FROM inventory WHERE product_id = ?').get(log.product_id)
     if (log.type === 'in') {
       if (existing) {
@@ -614,7 +651,6 @@ export function revokeInventoryLog(logId: number): void {
         )
       }
     }
-
     db.prepare('DELETE FROM inventory_logs WHERE id = ?').run(logId)
   })
   txn()
@@ -920,17 +956,81 @@ export function updatePickingOrderItem(id: number, data: Partial<NewPickingOrder
 }
 
 export function deletePickingOrderItem(id: number): boolean {
+  db.prepare('DELETE FROM picking_order_splits WHERE picking_item_id = ?').run(id)
   db.prepare('DELETE FROM picking_order_items WHERE id = ?').run(id)
   return true
 }
 
 export function deletePickingOrderByOrderNo(orderNo: string): number {
+  db.prepare(
+    'DELETE FROM picking_order_splits WHERE picking_item_id IN (SELECT id FROM picking_order_items WHERE order_no = ?)'
+  ).run(orderNo)
   const result = db.prepare('DELETE FROM picking_order_items WHERE order_no = ?').run(orderNo)
   return result.changes
 }
 
+export interface PickingOrderSummary {
+  order_no: string
+  total_count: number
+  picked_count: number
+  pending_count: number
+}
+
+export function getPickingOrderList(): PickingOrderSummary[] {
+  const rows = db.prepare(`
+    SELECT order_no,
+           COUNT(*) as total_count,
+           SUM(CASE WHEN is_picked = 1 THEN 1 ELSE 0 END) as picked_count,
+           SUM(CASE WHEN is_picked = 0 THEN 1 ELSE 0 END) as pending_count
+    FROM picking_order_items
+    GROUP BY order_no
+    ORDER BY order_no ASC
+  `).all() as { order_no: string; total_count: number; picked_count: number; pending_count: number }[]
+  return rows
+}
+
+export function getAllPickingOrderItems(): PickingOrderItem[] {
+  return db.prepare(
+    'SELECT * FROM picking_order_items ORDER BY order_no ASC, seq_no ASC'
+  ).all() as PickingOrderItem[]
+}
+
+export function getPickingOrderItemsByOrderNos(orderNos: string[]): PickingOrderItem[] {
+  if (orderNos.length === 0) return []
+  const placeholders = orderNos.map(() => '?').join(',')
+  return db.prepare(
+    `SELECT * FROM picking_order_items WHERE order_no IN (${placeholders}) ORDER BY order_no ASC, seq_no ASC`
+  ).all(...orderNos) as PickingOrderItem[]
+}
+
+export function batchDeletePickingOrdersByOrderNos(orderNos: string[]): number {
+  if (orderNos.length === 0) return 0
+  const placeholders = orderNos.map(() => '?').join(',')
+  const deleteSplitsStmt = db.prepare(
+    `DELETE FROM picking_order_splits WHERE picking_item_id IN (SELECT id FROM picking_order_items WHERE order_no IN (${placeholders}))`
+  )
+  const deleteItemsStmt = db.prepare('DELETE FROM picking_order_items WHERE order_no = ?')
+  let total = 0
+  const txn = db.transaction(() => {
+    deleteSplitsStmt.run(...orderNos)
+    for (const no of orderNos) {
+      const r = deleteItemsStmt.run(no)
+      total += r.changes
+    }
+  })
+  txn()
+  return total
+}
+
+export function deleteAllPickingOrders(): number {
+  db.prepare('DELETE FROM picking_order_splits').run()
+  const result = db.prepare('DELETE FROM picking_order_items').run()
+  return result.changes
+}
+
 export function importPickingOrderItems(
-  items: NewPickingOrderItem[]
+  items: NewPickingOrderItem[],
+  overwriteMode = false
 ): { success: number; failed: number; errors: string[] } {
   let success = 0
   let failed = 0
@@ -952,7 +1052,21 @@ export function importPickingOrderItems(
     WHERE order_no = ? AND seq_no = ? AND is_picked = 0
   `)
 
+  const deleteSplitsForUnpickedByOrderNo = db.prepare(
+    'DELETE FROM picking_order_splits WHERE picking_item_id IN (SELECT id FROM picking_order_items WHERE order_no = ? AND is_picked = 0)'
+  )
+  const deleteUnpickedByOrderNo = db.prepare(
+    'DELETE FROM picking_order_items WHERE order_no = ? AND is_picked = 0'
+  )
+
   const txn = db.transaction(() => {
+    if (overwriteMode && items.length > 0) {
+      const orderNos = [...new Set(items.map((i) => i.order_no).filter(Boolean))]
+      for (const no of orderNos) {
+        deleteSplitsForUnpickedByOrderNo.run(no)
+        deleteUnpickedByOrderNo.run(no)
+      }
+    }
     for (const item of items) {
       try {
         if (!item.order_no || !item.product_code) {
@@ -1133,11 +1247,85 @@ export function getPickingOrderSplits(
   return stmt.all(pickingItemId) as { component_code: string; quantity_pieces: number }[]
 }
 
-export function resetPickingItems(ids: number[]): number {
+/**
+ * 重置配货项（撤销出库），恢复库存并清除配货状态
+ * - 拆分出库：按 picking_order_splits 中记录的子件，逐条恢复库存
+ * - 普通出库：恢复主物料库存
+ * 恢复后清除拆分明细、重置 is_picked 等，以便用户更改拆分明细后重新配货
+ */
+export function resetPickingItems(
+  ids: number[],
+  operatorId?: number,
+  operatorName?: string
+): number {
   if (ids.length === 0) return 0
-  const placeholders = ids.map(() => '?').join(',')
-  const result = db.prepare(
-    `UPDATE picking_order_items SET is_picked = 0, picked_quantity = NULL, pick_remark = '', picked_at = NULL, picked_by = '', updated_at = datetime('now', 'localtime') WHERE id IN (${placeholders})`
-  ).run(...ids)
-  return result.changes
+
+  const getItem = db.prepare('SELECT * FROM picking_order_items WHERE id = ?')
+  const getSplits = db.prepare(
+    'SELECT component_code, quantity_pieces FROM picking_order_splits WHERE picking_item_id = ? ORDER BY id ASC'
+  )
+  const findProduct = db.prepare('SELECT id FROM products WHERE code = ?')
+  const findInventory = db.prepare('SELECT id FROM inventory WHERE product_id = ?')
+  const insertInventory = db.prepare('INSERT INTO inventory (product_id, quantity) VALUES (?, ?)')
+  const addInventory = db.prepare(
+    'UPDATE inventory SET quantity = quantity + ?, updated_at = CURRENT_TIMESTAMP WHERE product_id = ?'
+  )
+  const insertLog = db.prepare(
+    'INSERT INTO inventory_logs (product_id, type, quantity, remark, operator_id, operator_name) VALUES (?, ?, ?, ?, ?, ?)'
+  )
+  const deleteSplits = db.prepare('DELETE FROM picking_order_splits WHERE picking_item_id = ?')
+  const resetItem = db.prepare(`
+    UPDATE picking_order_items
+    SET is_picked = 0, picked_quantity = NULL, pick_remark = '', picked_at = NULL, picked_by = '', updated_at = datetime('now', 'localtime')
+    WHERE id = ?
+  `)
+
+  const txn = db.transaction(() => {
+    let count = 0
+    for (const id of ids) {
+      const item = getItem.get(id) as PickingOrderItem | undefined
+      if (!item || item.is_picked !== 1) continue
+
+      const splits = getSplits.all(id) as { component_code: string; quantity_pieces: number }[]
+
+      if (splits.length > 0) {
+        // 拆分出库：恢复各子件库存
+        for (const s of splits) {
+          const prod = findProduct.get(s.component_code) as { id: number } | undefined
+          if (prod) {
+            const qtyThousands = s.quantity_pieces / 1000
+            const existing = findInventory.get(prod.id)
+            if (existing) {
+              addInventory.run(qtyThousands, prod.id)
+            } else {
+              insertInventory.run(prod.id, qtyThousands)
+            }
+            const remark = `[配货撤销恢复] 单号${item.order_no} 序号${item.seq_no} 原拆分子件${s.component_code} 数量${s.quantity_pieces}只`
+            insertLog.run(prod.id, 'in', qtyThousands, remark, operatorId ?? null, operatorName ?? '')
+          }
+        }
+      } else {
+        // 普通出库：恢复主物料库存
+        const qty = item.picked_quantity ?? item.quantity
+        const prod = findProduct.get(item.product_code) as { id: number } | undefined
+        if (prod) {
+          const existing = findInventory.get(prod.id)
+          if (existing) {
+            addInventory.run(qty, prod.id)
+          } else {
+            insertInventory.run(prod.id, qty)
+          }
+          const remark = `[配货撤销恢复] 单号${item.order_no} 序号${item.seq_no} 原编码${item.product_code}`
+          insertLog.run(prod.id, 'in', qty, remark, operatorId ?? null, operatorName ?? '')
+        }
+      }
+
+      deleteSplits.run(id)
+      resetItem.run(id)
+      count++
+    }
+    return count
+  })
+
+  return txn()
 }

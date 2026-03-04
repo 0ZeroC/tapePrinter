@@ -2,7 +2,6 @@ import { useState, useRef, useCallback, useEffect } from 'react'
 import {
   Input,
   Button,
-  Table,
   Tag,
   Space,
   Card,
@@ -14,7 +13,9 @@ import {
   Alert,
   Steps,
   Typography,
-  Tooltip
+  Tooltip,
+  Drawer,
+  Checkbox
 } from 'antd'
 import {
   SearchOutlined,
@@ -24,10 +25,14 @@ import {
   DeleteOutlined,
   UploadOutlined,
   FileExcelOutlined,
-  ReloadOutlined
+  ReloadOutlined,
+  UnorderedListOutlined,
+  ExportOutlined,
+  ClearOutlined
 } from '@ant-design/icons'
 import * as XLSX from 'xlsx'
-import { api, type PickingOrderItem, type Product, type PickingSplitRow } from '../utils/api'
+import ResizableTable from '../components/ResizableTable'
+import { api, type PickingOrderItem, type Product, type PickingSplitRow, type PickingOrderSummary } from '../utils/api'
 import { useAuth } from '../contexts/AuthContext'
 
 const { Text } = Typography
@@ -43,6 +48,12 @@ interface SplitRow {
   quantity: number
 }
 
+interface CombinedLabelItem {
+  code: string
+  description: string
+  quantity: number
+}
+
 interface PickingOrderPageProps {
   onOpenPrintLabel?: (payload: {
     productCode: string
@@ -50,6 +61,7 @@ interface PickingOrderPageProps {
     projectName: string
     quantity: number
     unit: string
+    combinedItems?: CombinedLabelItem[]
   }) => void
   initialOrderNo?: string
   onOrderLoaded?: (orderNo: string) => void
@@ -90,7 +102,20 @@ function PickingOrderPage({ onOpenPrintLabel, initialOrderNo, onOrderLoaded }: P
   const [importFileName, setImportFileName] = useState('')
   const [importPreview, setImportPreview] = useState<any[]>([])
   const [importing, setImporting] = useState(false)
+  const [importOverwriteMode, setImportOverwriteMode] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
+
+  // Order management drawer
+  const [orderListVisible, setOrderListVisible] = useState(false)
+  const [orderList, setOrderList] = useState<PickingOrderSummary[]>([])
+  const [orderListLoading, setOrderListLoading] = useState(false)
+  const [selectedOrderNos, setSelectedOrderNos] = useState<string[]>([])
+  const [orderListDeleting, setOrderListDeleting] = useState(false)
+
+  // Combine label modal
+  const [combineModalOpen, setCombineModalOpen] = useState(false)
+  const [combineItems, setCombineItems] = useState<PickingOrderItem[]>([])
+  const [combineQtyMap, setCombineQtyMap] = useState<Record<number, number>>({})
 
   const loadOrder = useCallback(async (orderNo: string) => {
     if (!orderNo.trim()) {
@@ -408,6 +433,14 @@ function PickingOrderPage({ onOpenPrintLabel, initialOrderNo, onOrderLoaded }: P
     const totalSplitPieces = validRows.reduce((sum, r) => sum + r.quantity, 0)
     setSplitSubmitting(true)
     try {
+      // 若已出库，先重置（恢复库存、清除拆分明细），再按新拆分明细重新配货
+      if (splitTargetItem.is_picked === 1) {
+        const resetResult = await api.resetPickingItems([splitTargetItem.id])
+        if (!resetResult.success) {
+          message.error(resetResult.error || '重置失败，无法修改拆分')
+          return
+        }
+      }
       const result = await api.confirmPickingItems([
         {
           id: splitTargetItem.id,
@@ -518,13 +551,27 @@ function PickingOrderPage({ onOpenPrintLabel, initialOrderNo, onOrderLoaded }: P
     e.target.value = ''
   }, [])
 
+  const loadOrderList = useCallback(async () => {
+    setOrderListLoading(true)
+    try {
+      const result = await api.getPickingOrderList()
+      if (result.success && result.data) {
+        setOrderList(result.data)
+      }
+    } catch {
+      message.error('加载订单列表失败')
+    } finally {
+      setOrderListLoading(false)
+    }
+  }, [])
+
   const handleImportConfirm = useCallback(async () => {
     const validRows = importPreview.filter(r => r._valid)
     if (validRows.length === 0) { message.warning('没有有效数据'); return }
     setImporting(true)
     try {
       const items = validRows.map(({ _row: _, _valid: __, _error: ___, ...rest }) => rest)
-      const result = await api.importPickingOrderItems(items)
+      const result = await api.importPickingOrderItems(items, importOverwriteMode)
       if (result.success && result.data) {
         setImportStep(2)
         if (result.data.success > 0) {
@@ -538,15 +585,100 @@ function PickingOrderPage({ onOpenPrintLabel, initialOrderNo, onOrderLoaded }: P
     } finally {
       setImporting(false)
     }
-  }, [importPreview])
+  }, [importPreview, importOverwriteMode])
 
   const handleImportClose = useCallback(() => {
     setImportVisible(false)
     setImportStep(0)
     setImportPreview([])
     setImportFileName('')
+    setImportOverwriteMode(false)
     if (currentOrderNo) loadOrder(currentOrderNo)
   }, [currentOrderNo, loadOrder])
+
+  const handleExportOrders = useCallback(async (orderNos?: string[]) => {
+    try {
+      const result = await api.getPickingOrderExportData(orderNos)
+      if (!result.success || !result.data) {
+        message.error(result.error || '导出失败')
+        return
+      }
+      const items = result.data
+      if (items.length === 0) {
+        message.warning('没有可导出的数据')
+        return
+      }
+      const wsData = items.map((r) => ({
+        单号: r.order_no,
+        序号: r.seq_no,
+        编码: r.product_code,
+        物料描述: r.description,
+        数量: r.quantity,
+        单位: r.unit,
+        工程名称: r.project_name,
+        需求日期: r.required_date,
+        计划员: r.planner,
+        状态: r.is_picked === 1 ? '已出库' : '待配货'
+      }))
+      const ws = XLSX.utils.json_to_sheet(wsData)
+      const wb = XLSX.utils.book_new()
+      XLSX.utils.book_append_sheet(wb, ws, '配货单')
+      XLSX.writeFile(wb, `配货单导出_${new Date().toISOString().slice(0, 10)}.xlsx`)
+      message.success(`已导出 ${items.length} 条记录`)
+    } catch {
+      message.error('导出出错')
+    }
+  }, [])
+
+  const handleBatchDeleteOrders = useCallback(async () => {
+    if (selectedOrderNos.length === 0) {
+      message.warning('请先选择要删除的订单')
+      return
+    }
+    setOrderListDeleting(true)
+    try {
+      const result = await api.batchDeletePickingOrders(selectedOrderNos)
+      if (result.success && result.data !== undefined) {
+        message.success(`已删除 ${result.data} 条记录`)
+        setSelectedOrderNos([])
+        loadOrderList()
+        if (currentOrderNo && selectedOrderNos.includes(currentOrderNo)) {
+          setOrderItems([])
+          setCurrentOrderNo('')
+          setOrderNoInput('')
+        } else if (currentOrderNo) {
+          loadOrder(currentOrderNo)
+        }
+      } else {
+        message.error(result.error || '删除失败')
+      }
+    } catch {
+      message.error('删除出错')
+    } finally {
+      setOrderListDeleting(false)
+    }
+  }, [selectedOrderNos, currentOrderNo, loadOrderList, loadOrder])
+
+  const handleClearAllOrders = useCallback(async () => {
+    setOrderListDeleting(true)
+    try {
+      const result = await api.deleteAllPickingOrders()
+      if (result.success && result.data !== undefined) {
+        message.success(`已清空 ${result.data} 条记录`)
+        setSelectedOrderNos([])
+        loadOrderList()
+        setOrderItems([])
+        setCurrentOrderNo('')
+        setOrderNoInput('')
+      } else {
+        message.error(result.error || '清空失败')
+      }
+    } catch {
+      message.error('清空出错')
+    } finally {
+      setOrderListDeleting(false)
+    }
+  }, [loadOrderList])
 
   const pendingItems = orderItems.filter(i => i.is_picked === 0)
   const pickedItems = orderItems.filter(i => i.is_picked === 1)
@@ -569,6 +701,79 @@ function PickingOrderPage({ onOpenPrintLabel, initialOrderNo, onOrderLoaded }: P
     },
     [onOpenPrintLabel]
   )
+
+  const handleOpenCombinedLabel = useCallback(() => {
+    if (!onOpenPrintLabel) {
+      message.warning('当前环境不支持打标签跳转')
+      return
+    }
+    if (selectedIds.length === 0) {
+      message.warning('请先勾选要拼箱的物料')
+      return
+    }
+    if (selectedIds.length < 2 || selectedIds.length > 3) {
+      message.warning('拼箱标签目前仅支持同时选择 2～3 个物料')
+      return
+    }
+    if (!currentOrderNo) {
+      message.warning('请先查询并加载配货单')
+      return
+    }
+    const items = selectedIds
+      .map((id) => orderItems.find((i) => i.id === id))
+      .filter((i): i is PickingOrderItem => !!i)
+
+    if (items.length < 2 || items.length > 3 || items.length !== selectedIds.length) {
+      message.error('选中的物料数据有误，请重新选择')
+      return
+    }
+
+    // 初始化拼箱数量（默认取当前“实际出库量”或订单数量）
+    const initialQty: Record<number, number> = {}
+    items.forEach((item) => {
+      initialQty[item.id] = editMap[item.id]?.pickedQty ?? item.picked_quantity ?? item.quantity
+    })
+    setCombineItems(items)
+    setCombineQtyMap(initialQty)
+    setCombineModalOpen(true)
+  }, [onOpenPrintLabel, selectedIds, currentOrderNo, orderItems, editMap])
+
+  const handleConfirmCombinedModal = useCallback(() => {
+    if (!onOpenPrintLabel) {
+      message.warning('当前环境不支持打标签跳转')
+      return
+    }
+    if (!currentOrderNo || combineItems.length < 2) {
+      message.error('拼箱数据有误，请重新选择（至少需要 2 个物料）')
+      return
+    }
+    const combinedItems: CombinedLabelItem[] = combineItems.map((item) => {
+      const qty = combineQtyMap[item.id] ?? item.quantity
+      return {
+        code: item.product_code,
+        description: item.description || item.product_code,
+        quantity: qty > 0 ? qty : item.quantity
+      }
+    })
+
+    // 校验数量必须大于 0
+    if (combinedItems.some((it) => !it.quantity || it.quantity <= 0)) {
+      message.warning('请为每个物料输入大于 0 的数量')
+      return
+    }
+
+    const first = combineItems[0]
+
+    onOpenPrintLabel({
+      productCode: first.product_code,
+      orderNo: currentOrderNo,
+      projectName: first.project_name,
+      quantity: combinedItems[0].quantity,
+      unit: '只',
+      combinedItems
+    })
+    setCombineModalOpen(false)
+  }, [onOpenPrintLabel, currentOrderNo, combineItems, combineQtyMap])
 
   const columns = [
     {
@@ -597,25 +802,24 @@ function PickingOrderPage({ onOpenPrintLabel, initialOrderNo, onOrderLoaded }: P
       key: 'split',
       width: 120,
       align: 'center' as const,
-      render: (_: unknown, record: PickingOrderItem) =>
-        canManage ? (
-          <Space size="small">
-            <Button
-              type="link"
-              size="small"
-              onClick={() => handleOpenSplitModal(record)}
-            >
-              拆
-            </Button>
-            <Button
-              type="link"
-              size="small"
-              onClick={() => handleOpenPrintLabel(record)}
-            >
-              打标签
-            </Button>
-          </Space>
-        ) : null
+      render: (_: unknown, record: PickingOrderItem) => (
+        <Space size="small">
+          <Button
+            type="link"
+            size="small"
+            onClick={() => handleOpenSplitModal(record)}
+          >
+            拆
+          </Button>
+          <Button
+            type="link"
+            size="small"
+            onClick={() => handleOpenPrintLabel(record)}
+          >
+            打标签
+          </Button>
+        </Space>
+      )
     },
     {
       title: '应出数量',
@@ -698,7 +902,7 @@ function PickingOrderPage({ onOpenPrintLabel, initialOrderNo, onOrderLoaded }: P
     {
       title: '操作',
       key: 'action',
-      width: canManage ? 140 : 70,
+      width: canManage ? 140 : 100,
       render: (_: unknown, record: PickingOrderItem) => (
         <Space size="small">
           {canManage && (
@@ -725,9 +929,9 @@ function PickingOrderPage({ onOpenPrintLabel, initialOrderNo, onOrderLoaded }: P
               </Popconfirm>
             </>
           )}
-          {canManage && record.is_picked === 1 && (
+          {record.is_picked === 1 && (
             <Popconfirm
-              title="重置后将清除配货状态，是否继续？"
+              title="重置后将恢复库存、清除配货状态，可重新更改拆分明细后再配货。是否继续？"
               onConfirm={() => handleResetPick([record.id])}
               okText="重置"
               cancelText="取消"
@@ -778,10 +982,23 @@ function PickingOrderPage({ onOpenPrintLabel, initialOrderNo, onOrderLoaded }: P
           <Button type="primary" size="large" icon={<SearchOutlined />} onClick={handleSearch} loading={loading}>
             查询
           </Button>
+          <Button
+            size="large"
+            onClick={handleOpenCombinedLabel}
+            disabled={orderItems.length === 0}
+          >
+            拼箱
+          </Button>
           {canManage && (
             <>
+              <Button size="large" icon={<UnorderedListOutlined />} onClick={() => { setOrderListVisible(true); loadOrderList() }}>
+                订单管理
+              </Button>
               <Button size="large" icon={<UploadOutlined />} onClick={() => setImportVisible(true)}>
                 Excel导入
+              </Button>
+              <Button size="large" icon={<ExportOutlined />} onClick={() => handleExportOrders()}>
+                导出所有订单
               </Button>
               <Button size="large" icon={<PlusOutlined />} onClick={handleOpenAddItem}>
                 新增条目
@@ -830,7 +1047,7 @@ function PickingOrderPage({ onOpenPrintLabel, initialOrderNo, onOrderLoaded }: P
           style={{ flex: 1, overflow: 'auto' }}
           styles={{ body: { padding: 0 } }}
         >
-          <Table
+          <ResizableTable
             rowKey="id"
             size="small"
             dataSource={orderItems}
@@ -939,6 +1156,14 @@ function PickingOrderPage({ onOpenPrintLabel, initialOrderNo, onOrderLoaded }: P
                   <p>必填：<Tag>单号</Tag><Tag>编码</Tag><Tag>数量</Tag><Tag>序号</Tag></p>
                   <p>选填：<Tag>物料描述</Tag><Tag>单位</Tag><Tag>工程名称</Tag><Tag>需求日期</Tag><Tag>计划员</Tag><Tag>需求工厂</Tag><Tag>不含税单价</Tag><Tag>税率</Tag><Tag>含税单价</Tag><Tag>合计</Tag><Tag>下单日期</Tag></p>
                   <p style={{ color: '#888', marginTop: 4 }}>已出库的条目重复导入时不会覆盖配货状态</p>
+                  <div style={{ marginTop: 12 }}>
+                    <Checkbox
+                      checked={importOverwriteMode}
+                      onChange={(e) => setImportOverwriteMode(e.target.checked)}
+                    >
+                      覆盖导入：导入前先删除文件中订单号的未出库条目，再导入（已出库条目不受影响）
+                    </Checkbox>
+                  </div>
                 </div>
               }
               style={{ maxWidth: 520, margin: '0 auto', textAlign: 'left' }}
@@ -947,13 +1172,21 @@ function PickingOrderPage({ onOpenPrintLabel, initialOrderNo, onOrderLoaded }: P
         )}
         {importStep === 1 && (
           <div>
+            <div style={{ marginBottom: 12 }}>
+              <Checkbox
+                checked={importOverwriteMode}
+                onChange={(e) => setImportOverwriteMode(e.target.checked)}
+              >
+                覆盖导入（导入前先删除文件中订单号的未出库条目）
+              </Checkbox>
+            </div>
             <Space style={{ marginBottom: 12 }}>
               <Text>文件：{importFileName}</Text>
               <Tag color="processing">共 {importPreview.length} 行</Tag>
               <Tag color="success">有效 {validCountImport} 行</Tag>
               {invalidCountImport > 0 && <Tag color="error">无效 {invalidCountImport} 行</Tag>}
             </Space>
-            <Table
+            <ResizableTable
               dataSource={importPreview}
               rowKey="_row"
               size="small"
@@ -984,6 +1217,78 @@ function PickingOrderPage({ onOpenPrintLabel, initialOrderNo, onOrderLoaded }: P
           </div>
         )}
       </Modal>
+
+      {/* Order management drawer */}
+      <Drawer
+        title="配货单订单管理"
+        width={560}
+        open={orderListVisible}
+        onClose={() => { setOrderListVisible(false); setSelectedOrderNos([]) }}
+        extra={
+          <Space>
+            <Button
+              icon={<ExportOutlined />}
+              onClick={() => handleExportOrders(selectedOrderNos.length > 0 ? selectedOrderNos : undefined)}
+              disabled={orderList.length === 0}
+            >
+              导出{selectedOrderNos.length > 0 ? `所选(${selectedOrderNos.length})` : '全部'}
+            </Button>
+            <Popconfirm
+              title={`确定删除选中的 ${selectedOrderNos.length} 个订单？`}
+              onConfirm={handleBatchDeleteOrders}
+              okText="删除"
+              cancelText="取消"
+              okType="danger"
+              disabled={selectedOrderNos.length === 0}
+            >
+              <Button danger loading={orderListDeleting} disabled={selectedOrderNos.length === 0}>
+                批量删除
+              </Button>
+            </Popconfirm>
+            <Popconfirm
+              title="确定清空数据库中所有配货单数据？此操作不可撤销。"
+              onConfirm={handleClearAllOrders}
+              okText="清空"
+              cancelText="取消"
+              okType="danger"
+            >
+              <Button danger icon={<ClearOutlined />} loading={orderListDeleting}>
+                清空全部
+              </Button>
+            </Popconfirm>
+          </Space>
+        }
+      >
+        <div style={{ marginBottom: 12 }}>
+          <Text type="secondary">数据库中共 {orderList.length} 个订单，点击单号可快速查询</Text>
+        </div>
+        <ResizableTable
+          size="small"
+          rowKey="order_no"
+          loading={orderListLoading}
+          dataSource={orderList}
+          pagination={{ pageSize: 20 }}
+          rowSelection={{
+            selectedRowKeys: selectedOrderNos,
+            onChange: (keys) => setSelectedOrderNos(keys as string[])
+          }}
+          columns={[
+            {
+              title: '订单号',
+              dataIndex: 'order_no',
+              key: 'order_no',
+              render: (no: string) => (
+                <Button type="link" size="small" onClick={() => { setOrderNoInput(no); setOrderListVisible(false); loadOrder(no) }}>
+                  {no}
+                </Button>
+              )
+            },
+            { title: '总条数', dataIndex: 'total_count', key: 'total_count', width: 80 },
+            { title: '待配货', dataIndex: 'pending_count', key: 'pending_count', width: 80, render: (v: number) => <Tag color="warning">{v}</Tag> },
+            { title: '已出库', dataIndex: 'picked_count', key: 'picked_count', width: 80, render: (v: number) => <Tag color="success">{v}</Tag> }
+          ]}
+        />
+      </Drawer>
 
       {/* Split picking modal */}
       <Modal
@@ -1031,7 +1336,7 @@ function PickingOrderPage({ onOpenPrintLabel, initialOrderNo, onOrderLoaded }: P
                 loading={splitSearchLoading}
               />
               <div style={{ marginTop: 8 }}>
-                <Table
+                <ResizableTable
                   size="small"
                   rowKey="id"
                   dataSource={splitSearchResults}
@@ -1066,7 +1371,7 @@ function PickingOrderPage({ onOpenPrintLabel, initialOrderNo, onOrderLoaded }: P
                 </span>
               }
             >
-              <Table
+              <ResizableTable
                 size="small"
                 rowKey="id"
                 dataSource={splitRows}
@@ -1134,6 +1439,63 @@ function PickingOrderPage({ onOpenPrintLabel, initialOrderNo, onOrderLoaded }: P
             </Card>
           </div>
         )}
+      </Modal>
+
+      {/* Combine label quantity modal */}
+      <Modal
+        title="拼箱数量设置"
+        open={combineModalOpen}
+        onCancel={() => setCombineModalOpen(false)}
+        onOk={handleConfirmCombinedModal}
+        okText="跳转打印大标签"
+        cancelText="取消"
+        destroyOnClose
+      >
+        <div style={{ marginTop: 8 }}>
+          {combineItems.map((item) => (
+            <div
+              key={item.id}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                marginBottom: 8,
+                gap: 8
+              }}
+            >
+              <span style={{ width: 140, fontFamily: 'monospace', fontSize: 12 }}>
+                {item.product_code}
+              </span>
+              <span
+                style={{
+                  flex: 1,
+                  fontSize: 12,
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap'
+                }}
+                title={item.description || item.product_code}
+              >
+                {item.description || item.product_code}
+              </span>
+              <InputNumber
+                min={1}
+                step={1}
+                value={combineQtyMap[item.id]}
+                onChange={(v) =>
+                  setCombineQtyMap((prev) => ({
+                    ...prev,
+                    [item.id]: v ?? 0
+                  }))
+                }
+                style={{ width: 100 }}
+                addonAfter="只"
+              />
+            </div>
+          ))}
+          <div style={{ marginTop: 4, fontSize: 12, color: '#999' }}>
+            请确认每个物料的拼箱数量（单位固定为「只」），然后点击「跳转打印大标签」。
+          </div>
+        </div>
       </Modal>
 
       <style>{`

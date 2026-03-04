@@ -1,7 +1,6 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import {
   Input,
-  Table,
   Button,
   InputNumber,
   Card,
@@ -16,6 +15,7 @@ import {
 } from 'antd'
 import { SearchOutlined, ExportOutlined, FilterOutlined, DownloadOutlined, DeleteOutlined, DownOutlined, UploadOutlined, UndoOutlined } from '@ant-design/icons'
 import * as XLSX from 'xlsx'
+import ResizableTable from '../components/ResizableTable'
 import { api, type Product, type InventoryLog } from '../utils/api'
 import { useAuth } from '../contexts/AuthContext'
 import StockImportModal from '../components/StockImportModal'
@@ -184,9 +184,12 @@ function StockOutPage(): JSX.Element {
   }, [filteredLogs])
 
   const handleRevoke = useCallback((record: InventoryLog) => {
+    const isPickingSplit = (record.remark || '').includes('[配货拆出库]')
     Modal.confirm({
       title: '撤销出库记录',
-      content: `确定要撤销此条出库记录吗？将恢复库存 ${record.quantity}千（${record.product_code} ${record.product_name}）`,
+      content: isPickingSplit
+        ? '该条为配货拆分出库，撤销将一并恢复所有拆分物料库存，并重置配货单中对应行的已出库状态。是否继续？'
+        : `确定要撤销此条出库记录吗？将恢复库存 ${record.quantity}千（${record.product_code} ${record.product_name}）`,
       okText: '确认撤销',
       okType: 'danger',
       cancelText: '取消',
@@ -346,7 +349,7 @@ function StockOutPage(): JSX.Element {
           style={{ marginBottom: 16 }}
           styles={{ body: { padding: 0 } }}
         >
-          <Table
+          <ResizableTable
             dataSource={searchResults}
             columns={searchColumns}
             rowKey="id"
@@ -472,7 +475,7 @@ function StockOutPage(): JSX.Element {
               )}
             </Space>
           </div>
-          <Table
+          <ResizableTable
             dataSource={filteredLogs}
             columns={logColumns}
             rowKey="id"

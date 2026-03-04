@@ -1,7 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import {
   Input,
-  Table,
   Button,
   InputNumber,
   Card,
@@ -18,6 +17,7 @@ import {
   UploadOutlined
 } from '@ant-design/icons'
 import * as XLSX from 'xlsx'
+import ResizableTable from '../components/ResizableTable'
 import { api, type InventoryWithProduct } from '../utils/api'
 import ImportInventoryModal from '../components/ImportInventoryModal'
 
@@ -157,9 +157,7 @@ function StockPage(): JSX.Element {
       dataIndex: 'description',
       key: 'description',
       width: 260,
-      render: (text: string) => (
-        <span style={{ whiteSpace: 'nowrap' }}>{text || '-'}</span>
-      )
+      render: (text: string) => (text || '-')
     },
     { title: '物品名称', dataIndex: 'name', key: 'name', width: 140 },
     { title: '规格', dataIndex: 'spec', key: 'spec', width: 120 },
@@ -226,7 +224,7 @@ function StockPage(): JSX.Element {
         style={{ flex: 1, overflow: 'auto' }}
         styles={{ body: { padding: 0 } }}
       >
-        <Table
+        <ResizableTable
           dataSource={filteredList}
           columns={columns}
           rowKey="product_id"

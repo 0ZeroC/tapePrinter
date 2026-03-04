@@ -1,5 +1,5 @@
 import { useState, useRef } from 'react'
-import { Modal, Button, Table, Alert, Space, message, Steps, Typography, Tag, Upload } from 'antd'
+import { Modal, Button, Alert, Space, message, Steps, Typography, Tag, Upload } from 'antd'
 import { UploadOutlined, FileExcelOutlined, CheckCircleOutlined, InboxOutlined } from '@ant-design/icons'
 import * as XLSX from 'xlsx'
 import { api, type ProductData } from '../utils/api'
@@ -301,7 +301,7 @@ function ImportModal({ visible, onSuccess, onCancel }: ImportModalProps): JSX.El
             <Tag color="success">有效 {validCount} 行</Tag>
             {invalidCount > 0 && <Tag color="error">无效 {invalidCount} 行</Tag>}
           </Space>
-          <Table
+          <ResizableTable
             dataSource={previewData}
             columns={previewColumns}
             rowKey="_rowIndex"

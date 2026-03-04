@@ -1,6 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
 import {
-  Table,
   Button,
   Space,
   Input,
@@ -21,6 +20,7 @@ import {
   ClearOutlined
 } from '@ant-design/icons'
 import * as XLSX from 'xlsx'
+import ResizableTable from '../components/ResizableTable'
 import { api, type Product } from '../utils/api'
 import { useAuth } from '../contexts/AuthContext'
 import ProductForm from '../components/ProductForm'
@@ -209,9 +209,7 @@ function DataPage(): JSX.Element {
       key: 'description',
       width: 320,
       render: (text: string) =>
-        text
-          ? <span style={{ whiteSpace: 'nowrap' }}>{text}</span>
-          : <span style={{ color: '#ccc' }}>-</span>
+        text ? text : <span style={{ color: '#ccc' }}>-</span>
     },
     {
       title: '物品名称',
@@ -361,7 +359,7 @@ function DataPage(): JSX.Element {
         style={{ flex: 1, overflow: 'auto' }}
         styles={{ body: { padding: 0 } }}
       >
-        <Table
+        <ResizableTable
           dataSource={filteredProducts}
           columns={columns}
           rowKey="id"

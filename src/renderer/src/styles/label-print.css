@@ -281,6 +281,16 @@
   line-height: 1.4;
 }
 
+.label-large .label-row-combined-item {
+  margin-bottom: 3.2mm;
+  line-height: 1.6;
+}
+
+.label-large .label-row-combined-item .label-desc-value {
+  white-space: normal;
+  word-break: break-all;
+}
+
 .label-large .label-row:last-child {
   margin-bottom: 0;
 }

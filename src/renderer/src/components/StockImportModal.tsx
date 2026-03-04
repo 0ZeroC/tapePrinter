@@ -1,7 +1,8 @@
 import { useState, useRef } from 'react'
-import { Modal, Button, Table, Alert, Space, message, Steps, Typography, Tag } from 'antd'
+import { Modal, Button, Alert, Space, message, Steps, Typography, Tag } from 'antd'
 import { UploadOutlined, FileExcelOutlined, CheckCircleOutlined } from '@ant-design/icons'
 import * as XLSX from 'xlsx'
+import ResizableTable from './ResizableTable'
 import { api, type ImportResult } from '../utils/api'
 
 const { Text } = Typography
@@ -263,7 +264,7 @@ function StockImportModal({ visible, type, onSuccess, onCancel }: StockImportMod
             <Tag color="success">有效 {validCount} 行</Tag>
             {invalidCount > 0 && <Tag color="error">无效 {invalidCount} 行</Tag>}
           </Space>
-          <Table
+          <ResizableTable
             dataSource={previewData}
             columns={previewColumns}
             rowKey="_rowIndex"

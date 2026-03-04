@@ -30,10 +30,15 @@ import {
   getUserById,
   getPickingOrderItems,
   getPickingOrderItemById,
+  getPickingOrderList,
+  getAllPickingOrderItems,
+  getPickingOrderItemsByOrderNos,
   addPickingOrderItem,
   updatePickingOrderItem,
   deletePickingOrderItem,
   deletePickingOrderByOrderNo,
+  batchDeletePickingOrdersByOrderNos,
+  deleteAllPickingOrders,
   importPickingOrderItems,
   confirmPickingItems,
   resetPickingItems,
@@ -358,7 +363,7 @@ router.post('/inventory/stock-out', authMiddleware, (req: AuthRequest, res) => {
 router.post('/inventory/logs/:id/revoke', authMiddleware, inventoryViewMiddleware, (req: AuthRequest, res) => {
   try {
     const id = parseInt(req.params.id)
-    revokeInventoryLog(id)
+    revokeInventoryLog(id, req.user!.userId, req.user!.displayName)
     res.json(ok())
   } catch (err) {
     res.json(fail((err as Error).message))
@@ -474,6 +479,51 @@ router.get('/picking-orders', authMiddleware, (req, res) => {
   }
 })
 
+router.get('/picking-orders/order-list', authMiddleware, (req, res) => {
+  try {
+    res.json(ok(getPickingOrderList()))
+  } catch (err) {
+    res.json(fail((err as Error).message))
+  }
+})
+
+router.get('/picking-orders/export-data', authMiddleware, (req, res) => {
+  try {
+    const orderNosParam = req.query.orderNos as string
+    if (orderNosParam) {
+      const orderNos = orderNosParam.split(',').map((s) => s.trim()).filter(Boolean)
+      res.json(ok(getPickingOrderItemsByOrderNos(orderNos)))
+    } else {
+      res.json(ok(getAllPickingOrderItems()))
+    }
+  } catch (err) {
+    res.json(fail((err as Error).message))
+  }
+})
+
+router.post('/picking-orders/batch-delete', authMiddleware, pickingOrderManageMiddleware, (req, res) => {
+  try {
+    const { orderNos } = req.body
+    if (!Array.isArray(orderNos) || orderNos.length === 0) {
+      res.json(fail('请选择要删除的订单号'))
+      return
+    }
+    const count = batchDeletePickingOrdersByOrderNos(orderNos.map((s: string) => String(s).trim()).filter(Boolean))
+    res.json(ok(count))
+  } catch (err) {
+    res.json(fail((err as Error).message))
+  }
+})
+
+router.delete('/picking-orders/all', authMiddleware, pickingOrderManageMiddleware, (req, res) => {
+  try {
+    const count = deleteAllPickingOrders()
+    res.json(ok(count))
+  } catch (err) {
+    res.json(fail((err as Error).message))
+  }
+})
+
 router.post('/picking-orders', authMiddleware, pickingOrderManageMiddleware, (req, res) => {
   try {
     const item = addPickingOrderItem(req.body)
@@ -524,12 +574,14 @@ router.delete('/picking-orders/:id', authMiddleware, pickingOrderManageMiddlewar
 
 router.post('/picking-orders/import', authMiddleware, pickingOrderManageMiddleware, (req, res) => {
   try {
-    const items = req.body
-    if (!Array.isArray(items) || items.length === 0) {
+    const body = req.body
+    const itemList = Array.isArray(body?.items) ? body.items : (Array.isArray(body) ? body : [])
+    if (itemList.length === 0) {
       res.json(fail('导入数据为空'))
       return
     }
-    const result = importPickingOrderItems(items)
+    const overwrite = body?.overwriteMode === true
+    const result = importPickingOrderItems(itemList, overwrite)
     res.json(ok(result))
   } catch (err) {
     res.json(fail((err as Error).message))
@@ -559,14 +611,14 @@ router.post('/picking-orders/confirm-pick', authMiddleware, (req: AuthRequest, r
   }
 })
 
-router.post('/picking-orders/reset-pick', authMiddleware, pickingOrderManageMiddleware, (req, res) => {
+router.post('/picking-orders/reset-pick', authMiddleware, (req: AuthRequest, res) => {
   try {
     const { ids } = req.body
     if (!Array.isArray(ids) || ids.length === 0) {
       res.json(fail('请选择要重置的记录'))
       return
     }
-    const count = resetPickingItems(ids)
+    const count = resetPickingItems(ids, req.user!.userId, req.user!.displayName)
     res.json(ok(count))
   } catch (err) {
     res.json(fail((err as Error).message))

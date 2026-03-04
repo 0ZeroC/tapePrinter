@@ -27,12 +27,19 @@ const { Sider, Content } = Layout
 
 type PageKey = 'print' | 'data' | 'stockIn' | 'stockOut' | 'stock' | 'users' | 'pickingOrder'
 
+interface CombinedLabelItem {
+  code: string
+  description: string
+  quantity: number
+}
+
 interface PrintPreset {
   productCode?: string
   orderNo?: string
   projectName?: string
   quantity?: number
   unit?: string
+  combinedItems?: CombinedLabelItem[]
 }
 
 function App(): JSX.Element {
@@ -82,6 +89,7 @@ function App(): JSX.Element {
     projectName: string
     quantity: number
     unit: string
+    combinedItems?: CombinedLabelItem[]
   }): void => {
     setPrintPreset(payload)
     setCurrentPage('print')

@@ -1,7 +1,8 @@
 import { useState, useRef } from 'react'
-import { Modal, Button, Table, Alert, Space, message, Steps, Typography, Tag } from 'antd'
+import { Modal, Button, Alert, Space, message, Steps, Typography, Tag } from 'antd'
 import { UploadOutlined, FileExcelOutlined, CheckCircleOutlined } from '@ant-design/icons'
 import * as XLSX from 'xlsx'
+import ResizableTable from './ResizableTable'
 import { api } from '../utils/api'
 
 const { Text } = Typography
@@ -275,7 +276,7 @@ function ImportInventoryModal({
             message="导入将直接覆盖对应物料的库存数量"
             style={{ marginBottom: 12 }}
           />
-          <Table
+          <ResizableTable
             dataSource={previewData}
             columns={previewColumns}
             rowKey="_rowIndex"

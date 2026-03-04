@@ -1,7 +1,6 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import {
   Input,
-  Table,
   Button,
   InputNumber,
   Card,
@@ -16,6 +15,7 @@ import {
 } from 'antd'
 import { SearchOutlined, ImportOutlined, FilterOutlined, DownloadOutlined, DeleteOutlined, DownOutlined, UploadOutlined, UndoOutlined } from '@ant-design/icons'
 import * as XLSX from 'xlsx'
+import ResizableTable from '../components/ResizableTable'
 import { api, type Product, type InventoryLog } from '../utils/api'
 import { useAuth } from '../contexts/AuthContext'
 import StockImportModal from '../components/StockImportModal'
@@ -346,7 +346,7 @@ function StockInPage(): JSX.Element {
           style={{ marginBottom: 16 }}
           styles={{ body: { padding: 0 } }}
         >
-          <Table
+          <ResizableTable
             dataSource={searchResults}
             columns={searchColumns}
             rowKey="id"
@@ -474,7 +474,7 @@ function StockInPage(): JSX.Element {
               )}
             </Space>
           </div>
-          <Table
+          <ResizableTable
             dataSource={filteredLogs}
             columns={logColumns}
             rowKey="id"

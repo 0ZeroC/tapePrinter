@@ -1,6 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
 import {
-  Table,
   Button,
   Modal,
   Form,
@@ -289,7 +288,7 @@ function UserManagePage(): JSX.Element {
         style={{ flex: 1, overflow: 'auto' }}
         styles={{ body: { padding: 0 } }}
       >
-        <Table
+        <ResizableTable
           dataSource={users}
           columns={columns}
           rowKey="id"
