@@ -65,7 +65,6 @@ export interface UserInfo {
   role: 'admin' | 'user'
   canViewInventory: boolean
   canManageData: boolean
-  canManagePickingOrders: boolean
 }
 
 export interface UserRecord {
@@ -190,12 +189,11 @@ export const api = {
     role: string
     can_view_inventory: boolean
     can_manage_data: boolean
-    can_manage_picking_orders: boolean
   }) => request<UserRecord>('/users', { method: 'POST', body: JSON.stringify(data) }),
 
   updateUser: (
     id: number,
-    data: { display_name?: string; role?: string; can_view_inventory?: boolean; can_manage_data?: boolean; can_manage_picking_orders?: boolean; password?: string }
+    data: { display_name?: string; role?: string; can_view_inventory?: boolean; can_manage_data?: boolean; password?: string }
   ) => request<UserRecord>(`/users/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
 
   deleteUser: (id: number) => request(`/users/${id}`, { method: 'DELETE' }),

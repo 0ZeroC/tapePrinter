@@ -14,6 +14,7 @@ import {
   Typography
 } from 'antd'
 import { PlusOutlined, EditOutlined, DeleteOutlined } from '@ant-design/icons'
+import ResizableTable from '../components/ResizableTable'
 import { api, type UserRecord } from '../utils/api'
 import { useAuth } from '../contexts/AuthContext'
 
@@ -49,7 +50,7 @@ function UserManagePage(): JSX.Element {
   const handleAdd = (): void => {
     setEditingUser(null)
     form.resetFields()
-    form.setFieldsValue({ role: 'user', can_view_inventory: false, can_manage_data: false, can_manage_picking_orders: false })
+    form.setFieldsValue({ role: 'user', can_view_inventory: false, can_manage_data: false })
     setModalOpen(true)
   }
 
@@ -61,7 +62,6 @@ function UserManagePage(): JSX.Element {
       role: record.role,
       can_view_inventory: record.can_view_inventory === 1,
       can_manage_data: record.can_manage_data === 1,
-      can_manage_picking_orders: record.can_manage_picking_orders === 1,
       password: ''
     })
     setModalOpen(true)
@@ -91,8 +91,7 @@ function UserManagePage(): JSX.Element {
           display_name: values.display_name,
           role: values.role,
           can_view_inventory: values.can_view_inventory,
-          can_manage_data: values.can_manage_data,
-          can_manage_picking_orders: values.can_manage_picking_orders
+          can_manage_data: values.can_manage_data
         }
         if (values.password) {
           data.password = values.password
@@ -116,8 +115,7 @@ function UserManagePage(): JSX.Element {
           display_name: values.display_name || values.username,
           role: values.role,
           can_view_inventory: values.can_view_inventory,
-          can_manage_data: values.can_manage_data,
-          can_manage_picking_orders: values.can_manage_picking_orders
+          can_manage_data: values.can_manage_data
         })
         if (result.success) {
           message.success('创建成功')
@@ -168,23 +166,6 @@ function UserManagePage(): JSX.Element {
     }
   }
 
-  const handleToggleManagePickingOrders = async (
-    record: UserRecord,
-    checked: boolean
-  ): Promise<void> => {
-    try {
-      const result = await api.updateUser(record.id, { can_manage_picking_orders: checked })
-      if (result.success) {
-        message.success(checked ? '已开启配货单管理权限' : '已关闭配货单管理权限')
-        loadUsers()
-      } else {
-        message.error(result.error || '更新失败')
-      }
-    } catch {
-      message.error('操作失败')
-    }
-  }
-
   const columns = [
     { title: '用户名', dataIndex: 'username', key: 'username', width: 120 },
     { title: '显示名', dataIndex: 'display_name', key: 'display_name', width: 120 },
@@ -217,18 +198,6 @@ function UserManagePage(): JSX.Element {
           checked={record.can_manage_data === 1 || record.role === 'admin'}
           disabled={record.role === 'admin'}
           onChange={(checked) => handleToggleManageData(record, checked)}
-        />
-      )
-    },
-    {
-      title: '配货单管理权限',
-      key: 'can_manage_picking_orders',
-      width: 130,
-      render: (_: unknown, record: UserRecord) => (
-        <Switch
-          checked={record.can_manage_picking_orders === 1 || record.role === 'admin'}
-          disabled={record.role === 'admin'}
-          onChange={(checked) => handleToggleManagePickingOrders(record, checked)}
         />
       )
     },
@@ -343,13 +312,6 @@ function UserManagePage(): JSX.Element {
           <Form.Item
             label="修改物料库权限"
             name="can_manage_data"
-            valuePropName="checked"
-          >
-            <Switch checkedChildren="开启" unCheckedChildren="关闭" />
-          </Form.Item>
-          <Form.Item
-            label="配货单管理权限"
-            name="can_manage_picking_orders"
             valuePropName="checked"
           >
             <Switch checkedChildren="开启" unCheckedChildren="关闭" />

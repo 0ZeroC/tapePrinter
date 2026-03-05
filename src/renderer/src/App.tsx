@@ -69,8 +69,12 @@ function App(): JSX.Element {
 
   const menuItems = [
     { key: 'print' as PageKey, icon: <PrinterOutlined />, label: '标签打印' },
-    { key: 'stockIn' as PageKey, icon: <ImportOutlined />, label: '入库' },
-    { key: 'stockOut' as PageKey, icon: <ExportOutlined />, label: '出库' },
+    ...(user.canViewInventory
+      ? [
+          { key: 'stockIn' as PageKey, icon: <ImportOutlined />, label: '入库' },
+          { key: 'stockOut' as PageKey, icon: <ExportOutlined />, label: '出库' }
+        ]
+      : []),
     { key: 'pickingOrder' as PageKey, icon: <UnorderedListOutlined />, label: '配货单' },
     ...(user.canViewInventory
       ? [{ key: 'stock' as PageKey, icon: <AppstoreOutlined />, label: '库存' }]
@@ -104,9 +108,9 @@ function App(): JSX.Element {
       case 'print':
         return <PrintPage preset={printPreset} />
       case 'stockIn':
-        return <StockInPage />
+        return user.canViewInventory ? <StockInPage /> : <PrintPage />
       case 'stockOut':
-        return <StockOutPage />
+        return user.canViewInventory ? <StockOutPage /> : <PrintPage />
       case 'stock':
         return user.canViewInventory ? <StockPage /> : <PrintPage />
       case 'data':

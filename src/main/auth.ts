@@ -11,7 +11,6 @@ export interface JwtPayload {
   role: 'admin' | 'user'
   canViewInventory: boolean
   canManageData: boolean
-  canManagePickingOrders: boolean
 }
 
 export function signToken(payload: JwtPayload): string {

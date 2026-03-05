@@ -37,11 +37,6 @@ import { useAuth } from '../contexts/AuthContext'
 
 const { Text } = Typography
 
-interface EditState {
-  pickedQty: number
-  remark: string
-}
-
 interface SplitRow {
   id: string
   product: Product
@@ -76,9 +71,7 @@ function PickingOrderPage({ onOpenPrintLabel, initialOrderNo, onOrderLoaded }: P
   const [currentOrderNo, setCurrentOrderNo] = useState('')
   const [orderItems, setOrderItems] = useState<PickingOrderItem[]>([])
   const [loading, setLoading] = useState(false)
-  const [editMap, setEditMap] = useState<Record<number, EditState>>({})
   const [selectedIds, setSelectedIds] = useState<number[]>([])
-  const [confirming, setConfirming] = useState(false)
 
   // Split modal
   const [splitModalOpen, setSplitModalOpen] = useState(false)
@@ -117,6 +110,17 @@ function PickingOrderPage({ onOpenPrintLabel, initialOrderNo, onOrderLoaded }: P
   const [combineItems, setCombineItems] = useState<PickingOrderItem[]>([])
   const [combineQtyMap, setCombineQtyMap] = useState<Record<number, number>>({})
 
+  // 出库选择 modal：拆 / 不拆
+  const [outboundChoiceOpen, setOutboundChoiceOpen] = useState(false)
+  const [outboundTargetItem, setOutboundTargetItem] = useState<PickingOrderItem | null>(null)
+
+  // 不拆 modal：实际出库数量
+  const [noSplitModalOpen, setNoSplitModalOpen] = useState(false)
+  const [noSplitTargetItem, setNoSplitTargetItem] = useState<PickingOrderItem | null>(null)
+  const [noSplitActualQty, setNoSplitActualQty] = useState<number>(0)
+  const [noSplitRemark, setNoSplitRemark] = useState('')
+  const [noSplitSubmitting, setNoSplitSubmitting] = useState(false)
+
   const loadOrder = useCallback(async (orderNo: string) => {
     if (!orderNo.trim()) {
       message.warning('请输入单号')
@@ -134,14 +138,6 @@ function PickingOrderPage({ onOpenPrintLabel, initialOrderNo, onOrderLoaded }: P
           const trimmed = orderNo.trim()
           setOrderItems(result.data)
           setCurrentOrderNo(trimmed)
-          const initMap: Record<number, EditState> = {}
-          result.data.forEach((item) => {
-            initMap[item.id] = {
-              pickedQty: item.picked_quantity ?? item.quantity,
-              remark: item.pick_remark || ''
-            }
-          })
-          setEditMap(initMap)
           setSelectedIds([])
           if (trimmed) {
             onOrderLoaded?.(trimmed)
@@ -167,56 +163,6 @@ function PickingOrderPage({ onOpenPrintLabel, initialOrderNo, onOrderLoaded }: P
     setOrderNoInput(initialOrderNo)
     loadOrder(initialOrderNo)
   }, [initialOrderNo, currentOrderNo, loadOrder])
-
-  const handleConfirmPick = useCallback(async () => {
-    if (selectedIds.length === 0) {
-      message.warning('请先勾选要出库的物料')
-      return
-    }
-    const items = selectedIds.map((id) => ({
-      id,
-      pickedQty: editMap[id]?.pickedQty ?? 0,
-      remark: editMap[id]?.remark ?? ''
-    }))
-    setConfirming(true)
-    try {
-      const result = await api.confirmPickingItems(items)
-      if (result.success && result.data) {
-        const { success, failed, errors, inventoryErrors } = result.data
-        if (success > 0) {
-          message.success(`成功出库 ${success} 条`)
-        }
-        if (failed > 0) {
-          Modal.warning({
-            title: '部分出库失败',
-            content: (
-              <div>
-                {errors.map((e, i) => <div key={i} style={{ fontSize: 12 }}>{e}</div>)}
-              </div>
-            )
-          })
-        }
-        if (inventoryErrors.length > 0) {
-          Modal.info({
-            title: '以下物料不在库存系统中（已标记配货，未扣减库存）',
-            content: (
-              <div style={{ maxHeight: 200, overflow: 'auto' }}>
-                {inventoryErrors.map((e, i) => <div key={i} style={{ fontSize: 12 }}>{e}</div>)}
-              </div>
-            )
-          })
-        }
-        setSelectedIds([])
-        loadOrder(currentOrderNo)
-      } else {
-        message.error(result.error || '确认出库失败')
-      }
-    } catch {
-      message.error('确认出库出错')
-    } finally {
-      setConfirming(false)
-    }
-  }, [selectedIds, editMap, currentOrderNo, loadOrder])
 
   const handleDeleteItem = useCallback(async (id: number) => {
     try {
@@ -333,17 +279,13 @@ function PickingOrderPage({ onOpenPrintLabel, initialOrderNo, onOrderLoaded }: P
     setSplitModalOpen(true)
     setSplitSearchText('')
     setSplitSearchResults([])
-    // 打开时先清空当前拆分明细，随后根据历史记录自动还原
     setSplitRows([])
     setSplitRemark(record.pick_remark || '')
-
-    // 从后端查询历史拆分明细（无论是否已出库，都按 id 查询）
     api.getPickingOrderSplits(record.id).then((res) => {
       if (!res.success || !res.data) return
       const rows: SplitRow[] = (res.data as PickingSplitRow[]).map((r, index) => ({
         id: `${record.id}-${r.component_code}-${index}`,
         product: {
-          // 这里只需要编码和描述，其他字段占位即可
           id: 0,
           code: r.component_code,
           description: r.component_code,
@@ -358,11 +300,85 @@ function PickingOrderPage({ onOpenPrintLabel, initialOrderNo, onOrderLoaded }: P
         } as Product,
         quantity: r.quantity_pieces
       }))
-      if (rows.length > 0) {
-        setSplitRows(rows)
-      }
+      if (rows.length > 0) setSplitRows(rows)
     })
   }, [])
+
+  const handleOpenOutboundChoice = useCallback((record: PickingOrderItem) => {
+    if (record.is_picked === 1) return
+    setOutboundTargetItem(record)
+    setOutboundChoiceOpen(true)
+  }, [])
+
+  const handleChooseSplit = useCallback(() => {
+    if (outboundTargetItem) {
+      const item = outboundTargetItem
+      setOutboundChoiceOpen(false)
+      setOutboundTargetItem(null)
+      handleOpenSplitModal(item)
+    }
+  }, [outboundTargetItem, handleOpenSplitModal])
+
+  const handleChooseNoSplit = useCallback(() => {
+    if (outboundTargetItem) {
+      const item = outboundTargetItem
+      const remaining = item.quantity - (item.picked_quantity ?? 0)
+      setNoSplitTargetItem(item)
+      setNoSplitActualQty(remaining)
+      setNoSplitRemark('')
+      setOutboundChoiceOpen(false)
+      setOutboundTargetItem(null)
+      setNoSplitModalOpen(true)
+    }
+  }, [outboundTargetItem])
+
+  const handleConfirmNoSplit = useCallback(async () => {
+    if (!noSplitTargetItem) return
+    const qty = noSplitActualQty
+    if (!qty || qty <= 0) {
+      message.warning('实际出库数量必须大于 0')
+      return
+    }
+    const remaining = noSplitTargetItem.quantity - (noSplitTargetItem.picked_quantity ?? 0)
+    if (qty > remaining) {
+      message.warning(`实际出库数量不能大于未配数量（${remaining}）`)
+      return
+    }
+    setNoSplitSubmitting(true)
+    try {
+      const result = await api.confirmPickingItems([
+        {
+          id: noSplitTargetItem.id,
+          pickedQty: qty,
+          remark: noSplitRemark || ''
+        }
+      ])
+      if (result.success && result.data) {
+        const { success, failed, errors, inventoryErrors } = result.data
+        if (success > 0) {
+          message.success(qty >= remaining ? '配货已完成' : `本次出库 ${qty} 只，剩余 ${remaining - qty} 待配`)
+        }
+        if (failed > 0 && errors?.length) {
+          Modal.warning({ title: '出库失败', content: errors.map((e, i) => <div key={i} style={{ fontSize: 12 }}>{e}</div>) })
+        }
+        if (inventoryErrors?.length) {
+          Modal.info({
+            title: '以下物料不在库存系统中（已标记配货，未扣减库存）',
+            content: <div style={{ maxHeight: 200, overflow: 'auto' }}>{inventoryErrors.map((e, i) => <div key={i} style={{ fontSize: 12 }}>{e}</div>)}</div>
+          })
+        }
+        setNoSplitModalOpen(false)
+        setNoSplitTargetItem(null)
+        loadOrder(currentOrderNo)
+      } else {
+        message.error(result.error || '确认出库失败')
+      }
+    } catch {
+      message.error('确认出库出错')
+    } finally {
+      setNoSplitSubmitting(false)
+    }
+  }, [noSplitTargetItem, noSplitActualQty, noSplitRemark, currentOrderNo, loadOrder])
 
   const handleCloseSplitModal = useCallback(() => {
     setSplitModalOpen(false)
@@ -393,15 +409,16 @@ function PickingOrderPage({ onOpenPrintLabel, initialOrderNo, onOrderLoaded }: P
   }, [splitSearchText])
 
   const handleAddSplitProduct = useCallback((product: Product) => {
+    const defaultQty = splitTargetItem ? splitTargetItem.quantity : 1
     setSplitRows((prev) => [
       ...prev,
       {
         id: `${product.id}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
         product,
-        quantity: 1
+        quantity: defaultQty
       }
     ])
-  }, [])
+  }, [splitTargetItem])
 
   const handleSplitQuantityChange = useCallback((rowId: string, value: number | null) => {
     setSplitRows((prev) =>
@@ -417,19 +434,10 @@ function PickingOrderPage({ onOpenPrintLabel, initialOrderNo, onOrderLoaded }: P
     setSplitRows((prev) => prev.filter((row) => row.id !== rowId))
   }, [])
 
-  const handleConfirmSplit = useCallback(async () => {
-    if (!splitTargetItem) {
-      return
-    }
-    if (splitRows.length === 0) {
-      message.warning('请先新增拆分后的物料')
-      return
-    }
+  const doConfirmSplit = useCallback(async () => {
+    if (!splitTargetItem) return
     const validRows = splitRows.filter((r) => typeof r.quantity === 'number' && r.quantity > 0)
-    if (validRows.length === 0) {
-      message.warning('拆分物料的出库数量必须大于 0')
-      return
-    }
+    if (validRows.length === 0) return
     const totalSplitPieces = validRows.reduce((sum, r) => sum + r.quantity, 0)
     setSplitSubmitting(true)
     try {
@@ -496,6 +504,26 @@ function PickingOrderPage({ onOpenPrintLabel, initialOrderNo, onOrderLoaded }: P
       setSplitSubmitting(false)
     }
   }, [splitTargetItem, splitRows, splitRemark, handleCloseSplitModal, loadOrder, currentOrderNo])
+
+  const handleConfirmSplit = useCallback(() => {
+    if (!splitTargetItem) return
+    if (splitRows.length === 0) {
+      message.warning('请先新增拆分后的物料')
+      return
+    }
+    const validRows = splitRows.filter((r) => typeof r.quantity === 'number' && r.quantity > 0)
+    if (validRows.length === 0) {
+      message.warning('拆分物料的出库数量必须大于 0')
+      return
+    }
+    Modal.confirm({
+      title: '出库前确认',
+      content: '是否检查一平/双平？数量是否x2？',
+      okText: '已确认，出库',
+      cancelText: '取消返回',
+      onOk: doConfirmSplit
+    })
+  }, [splitTargetItem, splitRows, doConfirmSplit])
 
   // Excel import logic
   const handleImportFile = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
@@ -728,15 +756,16 @@ function PickingOrderPage({ onOpenPrintLabel, initialOrderNo, onOrderLoaded }: P
       return
     }
 
-    // 初始化拼箱数量（默认取当前“实际出库量”或订单数量）
+    // 初始化拼箱数量（默认取待配数量，即订单数量 - 已出库量）
     const initialQty: Record<number, number> = {}
     items.forEach((item) => {
-      initialQty[item.id] = editMap[item.id]?.pickedQty ?? item.picked_quantity ?? item.quantity
+      const remaining = item.quantity - (item.picked_quantity ?? 0)
+      initialQty[item.id] = remaining > 0 ? remaining : item.quantity
     })
     setCombineItems(items)
     setCombineQtyMap(initialQty)
     setCombineModalOpen(true)
-  }, [onOpenPrintLabel, selectedIds, currentOrderNo, orderItems, editMap])
+  }, [onOpenPrintLabel, selectedIds, currentOrderNo, orderItems])
 
   const handleConfirmCombinedModal = useCallback(() => {
     if (!onOpenPrintLabel) {
@@ -795,29 +824,27 @@ function PickingOrderPage({ onOpenPrintLabel, initialOrderNo, onOrderLoaded }: P
       dataIndex: 'description',
       key: 'description',
       width: 220,
-      ellipsis: true
-    },
-    {
-      title: '拆',
-      key: 'split',
-      width: 120,
-      align: 'center' as const,
-      render: (_: unknown, record: PickingOrderItem) => (
-        <Space size="small">
-          <Button
-            type="link"
-            size="small"
-            onClick={() => handleOpenSplitModal(record)}
-          >
-            拆
-          </Button>
-          <Button
-            type="link"
-            size="small"
-            onClick={() => handleOpenPrintLabel(record)}
-          >
-            打标签
-          </Button>
+      ellipsis: true,
+      render: (v: string, record: PickingOrderItem) => (
+        <Space size="small" wrap>
+          <span title={v}>{v || record.product_code}</span>
+          <Space size={4}>
+            <Button
+              type="primary"
+              size="small"
+              onClick={() => handleOpenOutboundChoice(record)}
+              disabled={record.is_picked === 1}
+            >
+              出库
+            </Button>
+            <Button
+              type="link"
+              size="small"
+              onClick={() => handleOpenPrintLabel(record)}
+            >
+              打标签
+            </Button>
+          </Space>
         </Space>
       )
     },
@@ -847,57 +874,43 @@ function PickingOrderPage({ onOpenPrintLabel, initialOrderNo, onOrderLoaded }: P
       width: 130,
       render: (_: unknown, record: PickingOrderItem) => {
         if (record.is_picked === 1) {
-          return <Text>{record.picked_quantity ?? record.quantity}</Text>
+          return <Text>{record.picked_quantity ?? record.quantity} {record.unit || '只'}</Text>
         }
-        return (
-          <InputNumber
-            size="small"
-            min={0}
-            step={1}
-            value={editMap[record.id]?.pickedQty ?? record.quantity}
-            onChange={(v) => setEditMap(prev => ({
-              ...prev,
-              [record.id]: { ...prev[record.id], pickedQty: v ?? 0 }
-            }))}
-            style={{ width: 100 }}
-          />
-        )
+        const picked = record.picked_quantity ?? 0
+        const total = record.quantity
+        if (picked > 0) {
+          return <Text type="secondary">已出 {picked}，剩余 {total - picked} {record.unit || '只'}</Text>
+        }
+        return <Text type="secondary">待出库 {total} {record.unit || '只'}</Text>
       }
     },
     {
       title: '备注',
       key: 'remark',
       width: 160,
-      render: (_: unknown, record: PickingOrderItem) => {
-        if (record.is_picked === 1) {
-          return <Text type="secondary" style={{ fontSize: 12 }}>{record.pick_remark}</Text>
-        }
-        return (
-          <Input
-            size="small"
-            placeholder="可填备注"
-            value={editMap[record.id]?.remark ?? ''}
-            onChange={(e) => setEditMap(prev => ({
-              ...prev,
-              [record.id]: { ...prev[record.id], remark: e.target.value }
-            }))}
-            style={{ width: 140 }}
-          />
-        )
-      }
+      render: (_: unknown, record: PickingOrderItem) => (
+        <Text type="secondary" style={{ fontSize: 12 }}>{record.pick_remark || '-'}</Text>
+      )
     },
     {
       title: '状态',
       key: 'status',
       width: 90,
       align: 'center' as const,
-      render: (_: unknown, record: PickingOrderItem) => record.is_picked === 1
-        ? (
-          <Tooltip title={`${record.picked_by} · ${record.picked_at?.slice(0, 16) ?? ''}`}>
-            <Tag color="success">已出库</Tag>
-          </Tooltip>
-        )
-        : <Tag color="warning">待配货</Tag>
+      render: (_: unknown, record: PickingOrderItem) => {
+        if (record.is_picked === 1) {
+          return (
+            <Tooltip title={`${record.picked_by} · ${record.picked_at?.slice(0, 16) ?? ''}`}>
+              <Tag color="success">已出库</Tag>
+            </Tooltip>
+          )
+        }
+        const picked = record.picked_quantity ?? 0
+        if (picked > 0) {
+          return <Tag color="processing">部分出库</Tag>
+        }
+        return <Tag color="warning">待配货</Tag>
+      }
     },
     {
       title: '操作',
@@ -929,9 +942,9 @@ function PickingOrderPage({ onOpenPrintLabel, initialOrderNo, onOrderLoaded }: P
               </Popconfirm>
             </>
           )}
-          {record.is_picked === 1 && (
+          {((record.is_picked === 1) || ((record.is_picked === 0) && (record.picked_quantity ?? 0) > 0)) && (
             <Popconfirm
-              title="重置后将恢复库存、清除配货状态，可重新更改拆分明细后再配货。是否继续？"
+              title={record.is_picked === 1 ? '重置后将恢复库存、清除配货状态。是否继续？' : '撤销本次部分出库，恢复库存。是否继续？'}
               onConfirm={() => handleResetPick([record.id])}
               okText="重置"
               cancelText="取消"
@@ -1035,13 +1048,12 @@ function PickingOrderPage({ onOpenPrintLabel, initialOrderNo, onOrderLoaded }: P
           }
           extra={
             <Button
-              type="primary"
-              icon={<CheckCircleOutlined />}
-              onClick={handleConfirmPick}
-              loading={confirming}
-              disabled={selectedIds.length === 0}
+              type="default"
+              icon={<ExportOutlined />}
+              onClick={() => handleExportOrders(currentOrderNo ? [currentOrderNo] : undefined)}
+              disabled={orderItems.length === 0}
             >
-              确认出库所选 ({selectedIds.length})
+              导出当前订单
             </Button>
           }
           style={{ flex: 1, overflow: 'auto' }}
@@ -1289,6 +1301,88 @@ function PickingOrderPage({ onOpenPrintLabel, initialOrderNo, onOrderLoaded }: P
           ]}
         />
       </Drawer>
+
+      {/* 出库选择：拆 / 不拆 */}
+      <Modal
+        title="选择出库方式"
+        open={outboundChoiceOpen}
+        onCancel={() => { setOutboundChoiceOpen(false); setOutboundTargetItem(null) }}
+        footer={null}
+        width={360}
+        destroyOnClose
+      >
+        {outboundTargetItem && (
+          <div style={{ padding: '16px 0' }}>
+            <div style={{ marginBottom: 16, fontSize: 13, color: '#666' }}>
+              <Text code>{outboundTargetItem.product_code}</Text>
+              <span style={{ marginLeft: 8 }}>{outboundTargetItem.description || '-'}</span>
+              <div style={{ marginTop: 4 }}>应出数量：{outboundTargetItem.quantity} {outboundTargetItem.unit || '只'}</div>
+            </div>
+            <Space size="middle">
+              <Button type="primary" size="large" onClick={handleChooseSplit}>
+                拆
+              </Button>
+              <Button size="large" onClick={handleChooseNoSplit}>
+                不拆
+              </Button>
+            </Space>
+            <div style={{ marginTop: 12, fontSize: 12, color: '#999' }}>
+              「拆」：选择拆分后的物料，按子件出库；「不拆」：按当前物料直接出库，可部分出库。
+            </div>
+          </div>
+        )}
+      </Modal>
+
+      {/* 不拆：实际出库数量 */}
+      <Modal
+        title={noSplitTargetItem ? `出库 - ${noSplitTargetItem.product_code}` : '出库'}
+        open={noSplitModalOpen}
+        onCancel={() => { setNoSplitModalOpen(false); setNoSplitTargetItem(null) }}
+        onOk={handleConfirmNoSplit}
+        okText="确认出库"
+        cancelText="取消"
+        confirmLoading={noSplitSubmitting}
+        destroyOnClose
+        width={480}
+      >
+        {noSplitTargetItem && (
+          <div style={{ padding: '16px 0' }}>
+            <div style={{ marginBottom: 16 }}>
+              <div style={{ marginBottom: 8 }}><Text strong>物料：</Text>{noSplitTargetItem.description || noSplitTargetItem.product_code}</div>
+              <div style={{ marginBottom: 8 }}>
+                <Text strong>应出数量：</Text>{noSplitTargetItem.quantity} {noSplitTargetItem.unit || '只'}
+                {(noSplitTargetItem.picked_quantity ?? 0) > 0 && (
+                  <span style={{ marginLeft: 12, color: '#ff9800' }}>
+                    已出 {(noSplitTargetItem.picked_quantity ?? 0)}，剩余 {noSplitTargetItem.quantity - (noSplitTargetItem.picked_quantity ?? 0)} {noSplitTargetItem.unit || '只'}
+                  </span>
+                )}
+              </div>
+            </div>
+            <Form layout="vertical">
+              <Form.Item
+                label="本次实际出库数量（只）"
+                help="货不全时可修改为部分数量；一次性全出则保持默认即可"
+              >
+                <InputNumber
+                  min={1}
+                  max={noSplitTargetItem.quantity - (noSplitTargetItem.picked_quantity ?? 0)}
+                  value={noSplitActualQty}
+                  onChange={(v) => setNoSplitActualQty(v ?? 0)}
+                  style={{ width: '100%' }}
+                  addonAfter="只"
+                />
+              </Form.Item>
+              <Form.Item label="备注（选填）">
+                <Input
+                  placeholder="可填写备注"
+                  value={noSplitRemark}
+                  onChange={(e) => setNoSplitRemark(e.target.value)}
+                />
+              </Form.Item>
+            </Form>
+          </div>
+        )}
+      </Modal>
 
       {/* Split picking modal */}
       <Modal

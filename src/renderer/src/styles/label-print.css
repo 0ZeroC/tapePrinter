@@ -281,7 +281,14 @@
   line-height: 1.4;
 }
 
+.label-large .label-row-combined-header .label-field,
+.label-large .label-row-combined-item .label-value {
+  flex: 0 0 auto;
+}
+
 .label-large .label-row-combined-item {
+  gap: 0;
+  align-items: flex-start;
   margin-bottom: 3.2mm;
   line-height: 1.6;
 }

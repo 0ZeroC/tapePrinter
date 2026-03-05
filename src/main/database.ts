@@ -1143,6 +1143,14 @@ export function confirmPickingItems(
     SET is_picked = 1, picked_quantity = ?, pick_remark = ?, picked_at = datetime('now', 'localtime'), picked_by = ?, updated_at = datetime('now', 'localtime')
     WHERE id = ?
   `)
+  // 部分出库：累加 picked_quantity，未配齐时 is_picked 保持 0
+  const markPartialPicked = db.prepare(`
+    UPDATE picking_order_items
+    SET picked_quantity = ?, pick_remark = ?, picked_at = datetime('now', 'localtime'), picked_by = ?,
+        is_picked = CASE WHEN ? >= quantity THEN 1 ELSE 0 END,
+        updated_at = datetime('now', 'localtime')
+    WHERE id = ?
+  `)
 
   // 拆分明细表：同一配货行多次确认时，始终以最后一次为准，先清空再重新写入
   const clearSplits = db.prepare('DELETE FROM picking_order_splits WHERE picking_item_id = ?')
@@ -1209,26 +1217,35 @@ export function confirmPickingItems(
         markPicked.run(qty, item.remark || '', item.pickedBy, item.id)
         success++
       } else {
-        // 普通出库：如果之前有拆分记录，这里视为回退拆分，清空历史拆分明细
+        // 普通出库（不拆）：支持部分出库，累加 picked_quantity
         clearSplits.run(pickItem.id)
 
-        const qty = item.pickedQty > 0 ? item.pickedQty : pickItem.quantity
+        const orderQty = pickItem.quantity
+        const alreadyPicked = pickItem.picked_quantity ?? 0
+        const thisOutQty = item.pickedQty > 0 ? item.pickedQty : (orderQty - alreadyPicked)
+        const newCumulative = alreadyPicked + thisOutQty
+        const isComplete = newCumulative >= orderQty
+
         const product = findProduct.get(pickItem.product_code) as { id: number } | undefined
         if (product) {
           const existing = findInventory.get(product.id)
           if (existing) {
-            subInventory.run(qty, product.id)
+            subInventory.run(thisOutQty, product.id)
           } else {
-            insertInventory.run(product.id, -qty)
+            insertInventory.run(product.id, -thisOutQty)
           }
           const remarkText = item.remark
             ? `[配货出库] ${item.remark}`
-            : `[配货出库] 单号${pickItem.order_no}`
-          insertLog.run(product.id, 'out', qty, remarkText, operatorId ?? null, operatorName ?? '')
+            : `[配货出库] 单号${pickItem.order_no} 本次${thisOutQty}${pickItem.unit || '只'}`
+          insertLog.run(product.id, 'out', thisOutQty, remarkText, operatorId ?? null, operatorName ?? '')
         } else {
           inventoryErrors.push(`物料「${pickItem.product_code}」不在库存系统中，已标记配货但未扣减库存`)
         }
-        markPicked.run(qty, item.remark || '', item.pickedBy, item.id)
+        if (isComplete) {
+          markPicked.run(orderQty, item.remark || '', item.pickedBy, pickItem.id)
+        } else {
+          markPartialPicked.run(newCumulative, item.remark || '', item.pickedBy, newCumulative, pickItem.id)
+        }
         success++
       }
     }
@@ -1280,11 +1297,38 @@ export function resetPickingItems(
     WHERE id = ?
   `)
 
+  const resetPartialItem = db.prepare(`
+    UPDATE picking_order_items
+    SET picked_quantity = NULL, pick_remark = '', picked_at = NULL, picked_by = '', updated_at = datetime('now', 'localtime')
+    WHERE id = ?
+  `)
+
   const txn = db.transaction(() => {
     let count = 0
     for (const id of ids) {
       const item = getItem.get(id) as PickingOrderItem | undefined
-      if (!item || item.is_picked !== 1) continue
+      if (!item) continue
+
+      // 部分出库（is_picked=0 但 picked_quantity>0）：恢复库存并清除累计出库
+      if (item.is_picked === 0 && (item.picked_quantity ?? 0) > 0) {
+        const qty = item.picked_quantity!
+        const prod = findProduct.get(item.product_code) as { id: number } | undefined
+        if (prod) {
+          const existing = findInventory.get(prod.id)
+          if (existing) {
+            addInventory.run(qty, prod.id)
+          } else {
+            insertInventory.run(prod.id, qty)
+          }
+          const remark = `[配货部分撤销恢复] 单号${item.order_no} 序号${item.seq_no} 原编码${item.product_code} 数量${qty}`
+          insertLog.run(prod.id, 'in', qty, remark, operatorId ?? null, operatorName ?? '')
+        }
+        resetPartialItem.run(id)
+        count++
+        continue
+      }
+
+      if (item.is_picked !== 1) continue
 
       const splits = getSplits.all(id) as { component_code: string; quantity_pieces: number }[]
 

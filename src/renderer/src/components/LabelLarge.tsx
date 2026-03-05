@@ -102,8 +102,8 @@ function LabelLarge({
                 <span
                   className="label-field"
                   style={{
-                    minWidth: '44mm',
-                    width: '44mm',
+                    minWidth: '45mm',
+                    width: '45mm',
                     textAlign: 'left'
                   }}
                 >
@@ -112,8 +112,8 @@ function LabelLarge({
                 <span
                   className="label-field"
                   style={{
-                    minWidth: '20mm',
-                    width: '20mm',
+                    minWidth: '19mm',
+                    width: '19mm',
                     textAlign: 'right'
                   }}
                 >
@@ -126,11 +126,12 @@ function LabelLarge({
                   <span
                     className="label-value label-code-value"
                     style={{
-                      fontSize: `${Math.max(extraTextFontSize - 2, 8)}pt`,
+                      fontSize: '9pt',
                       minWidth: '24mm',
                       width: '24mm',
-                      whiteSpace: 'normal',
-                      wordBreak: 'break-all'
+                      whiteSpace: 'nowrap',
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis'
                     }}
                   >
                     {item.code}
@@ -139,8 +140,8 @@ function LabelLarge({
                     className="label-value label-desc-value"
                     style={{
                       fontSize: `${Math.max(descFontSize - 2, 8)}pt`,
-                      minWidth: '44mm',
-                      width: '44mm'
+                      minWidth: '45mm',
+                      width: '45mm'
                     }}
                   >
                     {item.description}
@@ -149,8 +150,8 @@ function LabelLarge({
                     className="label-value"
                     style={{
                       fontSize: `${extraTextFontSize}pt`,
-                      minWidth: '20mm',
-                      width: '20mm',
+                      minWidth: '19mm',
+                      width: '19mm',
                       textAlign: 'right',
                       whiteSpace: 'nowrap'
                     }}

@@ -89,8 +89,7 @@ router.post('/auth/login', (req, res) => {
       displayName: user.display_name,
       role: user.role as 'admin' | 'user',
       canViewInventory: user.can_view_inventory === 1 || user.role === 'admin',
-      canManageData: user.can_manage_data === 1 || user.role === 'admin',
-      canManagePickingOrders: user.can_manage_picking_orders === 1 || user.role === 'admin'
+      canManageData: user.can_manage_data === 1 || user.role === 'admin'
     }
     const token = signToken(payload)
     res.json(ok({ token, user: payload }))
@@ -111,8 +110,7 @@ router.get('/auth/me', authMiddleware, (req: AuthRequest, res) => {
     displayName: user.display_name,
     role: user.role as 'admin' | 'user',
     canViewInventory: user.can_view_inventory === 1 || user.role === 'admin',
-    canManageData: user.can_manage_data === 1 || user.role === 'admin',
-    canManagePickingOrders: user.can_manage_picking_orders === 1 || user.role === 'admin'
+    canManageData: user.can_manage_data === 1 || user.role === 'admin'
   }
   res.json(ok(payload))
 })
@@ -153,7 +151,7 @@ router.get('/users', authMiddleware, adminMiddleware, (_req, res) => {
 
 router.post('/users', authMiddleware, adminMiddleware, (req, res) => {
   try {
-    const { username, password, display_name, role, can_view_inventory, can_manage_data, can_manage_picking_orders } = req.body
+    const { username, password, display_name, role, can_view_inventory, can_manage_data } = req.body
     if (!username || !password) {
       res.json(fail('用户名和密码不能为空'))
       return
@@ -164,8 +162,7 @@ router.post('/users', authMiddleware, adminMiddleware, (req, res) => {
       display_name || username,
       role || 'user',
       can_view_inventory ? 1 : 0,
-      can_manage_data ? 1 : 0,
-      can_manage_picking_orders ? 1 : 0
+      can_manage_data ? 1 : 0
     )
     const { password_hash: _, ...safe } = user as any
     res.json(ok(safe))
@@ -182,13 +179,12 @@ router.post('/users', authMiddleware, adminMiddleware, (req, res) => {
 router.put('/users/:id', authMiddleware, adminMiddleware, (req, res) => {
   try {
     const id = parseInt(req.params.id)
-    const { display_name, role, can_view_inventory, can_manage_data, can_manage_picking_orders, password } = req.body
+    const { display_name, role, can_view_inventory, can_manage_data, password } = req.body
     const data: any = {}
     if (display_name !== undefined) data.display_name = display_name
     if (role !== undefined) data.role = role
     if (can_view_inventory !== undefined) data.can_view_inventory = can_view_inventory ? 1 : 0
     if (can_manage_data !== undefined) data.can_manage_data = can_manage_data ? 1 : 0
-    if (can_manage_picking_orders !== undefined) data.can_manage_picking_orders = can_manage_picking_orders ? 1 : 0
     if (password) data.password = password
     const user = updateUser(id, data)
     if (!user) {
