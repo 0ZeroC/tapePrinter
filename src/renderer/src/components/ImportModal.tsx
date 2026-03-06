@@ -3,6 +3,7 @@ import { Modal, Button, Alert, Space, message, Steps, Typography, Tag, Upload } 
 import { UploadOutlined, FileExcelOutlined, CheckCircleOutlined, InboxOutlined } from '@ant-design/icons'
 import * as XLSX from 'xlsx'
 import { api, type ProductData } from '../utils/api'
+import ResizableTable from './ResizableTable'
 
 const { Text } = Typography
 

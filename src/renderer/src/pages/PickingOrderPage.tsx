@@ -15,7 +15,8 @@ import {
   Typography,
   Tooltip,
   Drawer,
-  Checkbox
+  Checkbox,
+  Radio
 } from 'antd'
 import {
   SearchOutlined,
@@ -109,6 +110,7 @@ function PickingOrderPage({ onOpenPrintLabel, initialOrderNo, onOrderLoaded }: P
   const [combineModalOpen, setCombineModalOpen] = useState(false)
   const [combineItems, setCombineItems] = useState<PickingOrderItem[]>([])
   const [combineQtyMap, setCombineQtyMap] = useState<Record<number, number>>({})
+  const [combineUnit, setCombineUnit] = useState<'只' | '套'>('只')
 
   // 出库选择 modal：拆 / 不拆
   const [outboundChoiceOpen, setOutboundChoiceOpen] = useState(false)
@@ -346,11 +348,13 @@ function PickingOrderPage({ onOpenPrintLabel, initialOrderNo, onOrderLoaded }: P
     }
     setNoSplitSubmitting(true)
     try {
+      const remarkBase = `订单号：${noSplitTargetItem.order_no}`
+      const remark = noSplitRemark ? `${remarkBase}，${noSplitRemark}` : remarkBase
       const result = await api.confirmPickingItems([
         {
           id: noSplitTargetItem.id,
           pickedQty: qty,
-          remark: noSplitRemark || ''
+          remark
         }
       ])
       if (result.success && result.data) {
@@ -449,11 +453,14 @@ function PickingOrderPage({ onOpenPrintLabel, initialOrderNo, onOrderLoaded }: P
           return
         }
       }
+      const remarkBase = `订单号：${splitTargetItem.order_no}`
+      const remarkExtra = splitRemark || `拆分出库：原编码 ${splitTargetItem.product_code}`
+      const remark = `${remarkBase}，${remarkExtra}`
       const result = await api.confirmPickingItems([
         {
           id: splitTargetItem.id,
           pickedQty: totalSplitPieces,
-          remark: splitRemark || `拆分出库：原编码 ${splitTargetItem.product_code}`,
+          remark,
           components: validRows.map((r) => ({
             code: r.product.code,
             quantity: r.quantity
@@ -798,11 +805,97 @@ function PickingOrderPage({ onOpenPrintLabel, initialOrderNo, onOrderLoaded }: P
       orderNo: currentOrderNo,
       projectName: first.project_name,
       quantity: combinedItems[0].quantity,
-      unit: '只',
+      unit: combineUnit,
       combinedItems
     })
     setCombineModalOpen(false)
-  }, [onOpenPrintLabel, currentOrderNo, combineItems, combineQtyMap])
+  }, [onOpenPrintLabel, currentOrderNo, combineItems, combineQtyMap, combineUnit])
+
+  const handleBatchOutbound = useCallback(() => {
+    if (selectedIds.length === 0) {
+      message.warning('请先勾选要出库的条目')
+      return
+    }
+
+    const items = selectedIds
+      .map((id) => orderItems.find((i) => i.id === id))
+      .filter((i): i is PickingOrderItem => !!i && i.is_picked === 0)
+
+    if (items.length === 0) {
+      message.warning('所选条目均已出库')
+      return
+    }
+
+    const orderNo = currentOrderNo || items[0]?.order_no || ''
+    const payload = items
+      .map((item) => {
+        const remaining = item.quantity - (item.picked_quantity ?? 0)
+        return {
+          id: item.id,
+          pickedQty: remaining,
+          remark: orderNo ? `订单号：${orderNo}，统一出库` : '统一出库'
+        }
+      })
+      .filter((p) => p.pickedQty > 0)
+
+    if (payload.length === 0) {
+      message.warning('所选条目没有可出库数量')
+      return
+    }
+
+    Modal.confirm({
+      title: '确认统一出库',
+      content: `共 ${payload.length} 条记录，将按剩余未出数量一次性出库。是否继续？`,
+      okText: '确认出库',
+      cancelText: '取消',
+      onOk: async () => {
+        try {
+          const result = await api.confirmPickingItems(payload)
+          if (result.success && result.data) {
+            const { success, failed, errors, inventoryErrors } = result.data
+            if (success > 0) {
+              message.success(`已统一出库 ${success} 条记录`)
+            }
+            if (failed > 0 && errors?.length) {
+              Modal.warning({
+                title: '部分出库失败',
+                content: (
+                  <div>
+                    {errors.map((e, i) => (
+                      <div key={i} style={{ fontSize: 12 }}>
+                        {e}
+                      </div>
+                    ))}
+                  </div>
+                )
+              })
+            }
+            if (inventoryErrors?.length) {
+              Modal.info({
+                title: '以下物料不在库存系统中（已标记配货，未扣减库存）',
+                content: (
+                  <div style={{ maxHeight: 200, overflow: 'auto' }}>
+                    {inventoryErrors.map((e, i) => (
+                      <div key={i} style={{ fontSize: 12 }}>
+                        {e}
+                      </div>
+                    ))}
+                  </div>
+                )
+              })
+            }
+            if (currentOrderNo) {
+              loadOrder(currentOrderNo)
+            }
+          } else {
+            message.error(result.error || '统一出库失败')
+          }
+        } catch {
+          message.error('统一出库出错')
+        }
+      }
+    })
+  }, [selectedIds, orderItems, currentOrderNo, loadOrder])
 
   const columns = [
     {
@@ -996,11 +1089,19 @@ function PickingOrderPage({ onOpenPrintLabel, initialOrderNo, onOrderLoaded }: P
             查询
           </Button>
           <Button
+            type="primary"
             size="large"
             onClick={handleOpenCombinedLabel}
             disabled={orderItems.length === 0}
           >
             拼箱
+          </Button>
+          <Button
+            size="large"
+            onClick={handleBatchOutbound}
+            disabled={orderItems.length === 0}
+          >
+            统一出库
           </Button>
           {canManage && (
             <>
@@ -1546,6 +1647,24 @@ function PickingOrderPage({ onOpenPrintLabel, initialOrderNo, onOrderLoaded }: P
         destroyOnClose
       >
         <div style={{ marginTop: 8 }}>
+          <div
+            style={{
+              marginBottom: 12,
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8
+            }}
+          >
+            <Text style={{ fontSize: 13 }}>拼箱单位：</Text>
+            <Radio.Group
+              value={combineUnit}
+              onChange={(e) => setCombineUnit(e.target.value)}
+              size="small"
+            >
+              <Radio.Button value="只">只</Radio.Button>
+              <Radio.Button value="套">套</Radio.Button>
+            </Radio.Group>
+          </div>
           {combineItems.map((item) => (
             <div
               key={item.id}
@@ -1582,12 +1701,12 @@ function PickingOrderPage({ onOpenPrintLabel, initialOrderNo, onOrderLoaded }: P
                   }))
                 }
                 style={{ width: 100 }}
-                addonAfter="只"
+                addonAfter={combineUnit}
               />
             </div>
           ))}
           <div style={{ marginTop: 4, fontSize: 12, color: '#999' }}>
-            请确认每个物料的拼箱数量（单位固定为「只」），然后点击「跳转打印大标签」。
+            请确认每个物料的拼箱数量，并在上方选择单位（只/套），然后点击「跳转打印大标签」。
           </div>
         </div>
       </Modal>
