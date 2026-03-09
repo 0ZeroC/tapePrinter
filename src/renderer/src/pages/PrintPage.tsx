@@ -24,9 +24,10 @@ import '../styles/label-print.css'
 const { Title } = Typography
 
 type TemplateType = 'small' | 'large'
-type LabelExtraFontSize = 'small' | 'medium' | 'large'
+type LabelExtraFontSize = 'mini' | 'small' | 'medium' | 'large'
 
 const LABEL_FONT_SIZE_MAP: Record<LabelExtraFontSize, number> = {
+  mini: 8,
   small: 10,
   medium: 12,
   large: 14
@@ -39,6 +40,7 @@ interface PrintPagePreset {
   quantity?: number
   unit?: string
   combinedItems?: CombinedLabelItem[]
+  boxNo?: number
 }
 
 interface PrintPageProps {
@@ -56,12 +58,15 @@ function PrintPage({ preset }: PrintPageProps): JSX.Element {
   const [templateType, setTemplateType] = useState<TemplateType>('small')
   const [orderNo, setOrderNo] = useState<string>('')
   const [projectName, setProjectName] = useState<string>('')
-  const [labelTextFontSize, setLabelTextFontSize] = useState<LabelExtraFontSize>('medium')
+  const [productCode, setProductCode] = useState<string>('')
+  const [orderNoFontSize, setOrderNoFontSize] = useState<LabelExtraFontSize>('medium')
+  const [projectNameFontSize, setProjectNameFontSize] = useState<LabelExtraFontSize>('medium')
   const [labelDescFontSize, setLabelDescFontSize] = useState<LabelExtraFontSize>('medium')
   const [skipInventory, setSkipInventory] = useState(false)
   const [loading, setLoading] = useState(false)
   const [printing, setPrinting] = useState(false)
   const [combinedItems, setCombinedItems] = useState<CombinedLabelItem[] | null>(null)
+  const [boxNo, setBoxNo] = useState<number | undefined>(undefined)
   const searchInputRef = useRef<any>(null)
 
   const handleSearch = useCallback(async (value: string) => {
@@ -96,15 +101,18 @@ function PrintPage({ preset }: PrintPageProps): JSX.Element {
       setCombinedItems(preset.combinedItems)
       setOrderNo(preset.orderNo ?? '')
       setProjectName(preset.projectName ?? '')
+      setBoxNo(preset.boxNo)
       // 拼箱标签只打印大标签，且默认不扣减库存
       setTemplateType('large')
       setSkipInventory(true)
     } else {
       setCombinedItems(null)
+      setBoxNo(undefined)
     }
 
     if (preset.productCode) {
       setSearchText(preset.productCode)
+      setProductCode(preset.productCode)
       // 自动按物料号搜索并选中
       handleSearch(preset.productCode)
     }
@@ -124,6 +132,15 @@ function PrintPage({ preset }: PrintPageProps): JSX.Element {
       setTemplateType('large')
     }
   }, [preset, handleSearch])
+
+  // 选中物品时自动填充物料编码（可编辑）
+  useEffect(() => {
+    if (selectedProduct) {
+      setProductCode(selectedProduct.code)
+    } else {
+      setProductCode('')
+    }
+  }, [selectedProduct])
 
   const handlePrint = useCallback(async () => {
     if (!selectedProduct) {
@@ -362,6 +379,15 @@ function PrintPage({ preset }: PrintPageProps): JSX.Element {
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                 <div style={{ display: 'flex', alignItems: 'center' }}>
+                  <span style={{ marginRight: 8, fontWeight: 500 }}>物料编码：</span>
+                  <Input
+                    value={productCode}
+                    onChange={(e) => setProductCode(e.target.value)}
+                    style={{ width: 260 }}
+                    placeholder="自动填充，可编辑"
+                  />
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center' }}>
                   <span style={{ marginRight: 8, fontWeight: 500 }}>订单号：</span>
                   <Input
                     value={orderNo}
@@ -383,12 +409,27 @@ function PrintPage({ preset }: PrintPageProps): JSX.Element {
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
                   <div style={{ display: 'flex', alignItems: 'center' }}>
-                    <span style={{ marginRight: 8, fontWeight: 500 }}>订单/工程字号：</span>
+                    <span style={{ marginRight: 8, fontWeight: 500 }}>订单号字号：</span>
                     <Select
-                      value={labelTextFontSize}
-                      onChange={setLabelTextFontSize}
-                      style={{ width: 180 }}
+                      value={orderNoFontSize}
+                      onChange={setOrderNoFontSize}
+                      style={{ width: 140 }}
                       options={[
+                        { value: 'mini', label: '迷你（8pt）' },
+                        { value: 'small', label: '小（10pt）' },
+                        { value: 'medium', label: '中（12pt）' },
+                        { value: 'large', label: '大（14pt）' }
+                      ]}
+                    />
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center' }}>
+                    <span style={{ marginRight: 8, fontWeight: 500 }}>工程名称字号：</span>
+                    <Select
+                      value={projectNameFontSize}
+                      onChange={setProjectNameFontSize}
+                      style={{ width: 140 }}
+                      options={[
+                        { value: 'mini', label: '迷你（8pt）' },
                         { value: 'small', label: '小（10pt）' },
                         { value: 'medium', label: '中（12pt）' },
                         { value: 'large', label: '大（14pt）' }
@@ -409,7 +450,7 @@ function PrintPage({ preset }: PrintPageProps): JSX.Element {
                     />
                   </div>
                   <span style={{ marginLeft: 6, color: '#999', fontSize: 12 }}>
-                    （订单/工程字号用于订单号和工程名称，描述字号用于物料描述内容）
+                    （描述字号用于物料描述内容）
                   </span>
                 </div>
               </div>
@@ -450,17 +491,25 @@ function PrintPage({ preset }: PrintPageProps): JSX.Element {
                     className={`label-preview-item ${i < printCount - 1 ? 'label-page-break' : ''}`}
                   >
                     {templateType === 'small' ? (
-                      <LabelSmall product={selectedProduct} quantity={quantity} unit={unit} />
+                      <LabelSmall
+                        product={selectedProduct}
+                        productCode={productCode}
+                        quantity={quantity}
+                        unit={unit}
+                      />
                     ) : (
                       <LabelLarge
                         product={selectedProduct}
+                        productCode={productCode}
                         quantity={combinedItems ? undefined : quantity}
                         unit={combinedItems ? undefined : unit}
                         orderNo={orderNo}
                         projectName={projectName}
-                        textFontSizePt={LABEL_FONT_SIZE_MAP[labelTextFontSize]}
+                        orderNoFontSizePt={LABEL_FONT_SIZE_MAP[orderNoFontSize]}
+                        projectNameFontSizePt={LABEL_FONT_SIZE_MAP[projectNameFontSize]}
                         descFontSizePt={LABEL_FONT_SIZE_MAP[labelDescFontSize]}
                         combinedItems={combinedItems || undefined}
+                        boxNo={combinedItems ? boxNo : undefined}
                       />
                     )}
                   </div>

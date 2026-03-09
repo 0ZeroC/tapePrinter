@@ -31,6 +31,7 @@ interface CombinedLabelItem {
   code: string
   description: string
   quantity: number
+  unit?: string
 }
 
 interface PrintPreset {
@@ -40,6 +41,7 @@ interface PrintPreset {
   quantity?: number
   unit?: string
   combinedItems?: CombinedLabelItem[]
+  boxNo?: number
 }
 
 function App(): JSX.Element {
@@ -94,6 +96,7 @@ function App(): JSX.Element {
     quantity: number
     unit: string
     combinedItems?: CombinedLabelItem[]
+    boxNo?: number
   }): void => {
     setPrintPreset(payload)
     setCurrentPage('print')

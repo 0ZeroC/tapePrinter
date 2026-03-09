@@ -1,5 +1,5 @@
-import { useEffect, useState, useMemo } from 'react'
-import QRCode from 'qrcode'
+import { useMemo } from 'react'
+import { QRCodeSVG } from 'qrcode.react'
 import type { Product } from '../utils/api'
 import logoImg from '../assets/logo.png'
 import stampImg from '../assets/stamp.png'
@@ -8,30 +8,38 @@ export interface CombinedLabelItem {
   code: string
   description: string
   quantity: number
+  unit?: string
 }
 
 interface LabelLargeProps {
   product: Product
+  productCode?: string
   quantity?: number
   unit?: string
   orderNo?: string
   projectName?: string
-  textFontSizePt?: number
+  orderNoFontSizePt?: number
+  projectNameFontSizePt?: number
   descFontSizePt?: number
   combinedItems?: CombinedLabelItem[]
+  /** 拼箱标签的箱号，会显示在日期同一行后面，如 4# */
+  boxNo?: number
 }
 
 function LabelLarge({
   product,
+  productCode,
   quantity,
   unit,
   orderNo,
   projectName,
-  textFontSizePt,
+  orderNoFontSizePt,
+  projectNameFontSizePt,
   descFontSizePt,
-  combinedItems
+  combinedItems,
+  boxNo
 }: LabelLargeProps): JSX.Element {
-  const [qrDataUrl, setQrDataUrl] = useState<string>('')
+  const displayCode = productCode ?? product.code
 
   // 当天日期
   const today = useMemo(() => {
@@ -39,27 +47,23 @@ function LabelLarge({
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
   }, [])
 
-  const extraTextFontSize = useMemo(
-    () => (textFontSizePt && textFontSizePt > 0 ? textFontSizePt : 11.5),
-    [textFontSizePt]
+  const orderFontSize = useMemo(
+    () => (orderNoFontSizePt && orderNoFontSizePt > 0 ? orderNoFontSizePt : 11.5),
+    [orderNoFontSizePt]
+  )
+  const projectFontSize = useMemo(
+    () => (projectNameFontSizePt && projectNameFontSizePt > 0 ? projectNameFontSizePt : 11.5),
+    [projectNameFontSizePt]
   )
   const descFontSize = useMemo(
     () => (descFontSizePt && descFontSizePt > 0 ? descFontSizePt : 12.5),
     [descFontSizePt]
   )
 
-  // 生成二维码（默认只包含物品编码）
-  useEffect(() => {
-    const qrContent = product.code
-
-    QRCode.toDataURL(qrContent, {
-      width: 200,
-      margin: 1,
-      errorCorrectionLevel: 'M'
-    })
-      .then(setQrDataUrl)
-      .catch(() => setQrDataUrl(''))
-  }, [product])
+  const qrContent = useMemo(
+    () => String(displayCode ?? product?.code ?? '-').trim() || '-',
+    [displayCode, product?.code]
+  )
 
   return (
     <div className="label-large">
@@ -71,29 +75,37 @@ function LabelLarge({
         <div className="label-details">
           {combinedItems && combinedItems.length > 0 ? (
             <>
-              {/* 第二行：只显示订单号 + 工程名称内容，不显示标题 */}
+              {/* 第二行：订单号 + 工程名称（同一行，空格间隔） */}
               <div className="label-row">
                 <span
                   className="label-value"
                   style={{
-                    fontSize: `${extraTextFontSize}pt`,
-                    fontWeight: 900,
+                    fontSize: `${orderFontSize}pt`,
                     whiteSpace: 'normal',
                     wordBreak: 'break-all'
                   }}
                 >
-                  {(orderNo || '') || (projectName || '')
-                    ? [orderNo, projectName].filter(Boolean).join(' / ')
-                    : '-'}
+                  {orderNo || '-'}
+                </span>
+                {' '}
+                <span
+                  className="label-value"
+                  style={{
+                    fontSize: `${projectFontSize}pt`,
+                    whiteSpace: 'normal',
+                    wordBreak: 'break-all'
+                  }}
+                >
+                  {projectName || '-'}
                 </span>
               </div>
-              {/* 第三行：表头 “物料编码” “物料描述” “数量” */}
+              {/* 第四行：表头 “物料编码” “物料描述” “数量” */}
               <div className="label-row label-row-combined-header">
                 <span
                   className="label-field"
                   style={{
-                    minWidth: '24mm',
-                    width: '24mm',
+                    minWidth: '25mm',
+                    width: '25mm',
                     textAlign: 'left'
                   }}
                 >
@@ -127,8 +139,8 @@ function LabelLarge({
                     className="label-value label-code-value"
                     style={{
                       fontSize: '9pt',
-                      minWidth: '24mm',
-                      width: '24mm',
+                      minWidth: '25mm',
+                      width: '25mm',
                       whiteSpace: 'nowrap',
                       overflow: 'hidden',
                       textOverflow: 'ellipsis'
@@ -149,14 +161,14 @@ function LabelLarge({
                   <span
                     className="label-value"
                     style={{
-                      fontSize: `${extraTextFontSize}pt`,
+                      fontSize: `${projectFontSize}pt`,
                       minWidth: '19mm',
                       width: '19mm',
                       textAlign: 'right',
                       whiteSpace: 'nowrap'
                     }}
                   >
-                    {item.quantity}只
+                    {item.quantity} {item.unit || '只'}
                   </span>
                 </div>
               ))}
@@ -168,25 +180,37 @@ function LabelLarge({
                 >
                   {today}
                 </span>
+                {boxNo != null && boxNo > 0 && (
+                  <span
+                    className="label-value"
+                    style={{
+                      fontSize: '11.5pt',
+                      whiteSpace: 'nowrap',
+                      marginLeft: '8mm'
+                    }}
+                  >
+                    {boxNo}#
+                  </span>
+                )}
               </div>
             </>
           ) : (
             <>
               <div className="label-row">
                 <span className="label-field">订单号：</span>
-                <span className="label-value" style={{ fontSize: `${extraTextFontSize}pt` }}>
+                <span className="label-value" style={{ fontSize: `${orderFontSize}pt` }}>
                   {orderNo || '-'}
                 </span>
               </div>
               <div className="label-row">
                 <span className="label-field">工程名称：</span>
-                <span className="label-value" style={{ fontSize: `${extraTextFontSize}pt` }}>
+                <span className="label-value" style={{ fontSize: `${projectFontSize}pt` }}>
                   {projectName || '-'}
                 </span>
               </div>
               <div className="label-row">
                 <span className="label-field">物料编码：</span>
-                <span className="label-value">{product.code}</span>
+                <span className="label-value">{displayCode}</span>
               </div>
               <div className="label-row label-row-desc">
                 <span className="label-field">物料描述：</span>
@@ -200,7 +224,7 @@ function LabelLarge({
               {quantity && (
                 <div className="label-row">
                   <span className="label-field">数　　量：</span>
-                  <span className="label-value" style={{ fontWeight: 'bold', fontSize: '13.5pt' }}>
+                  <span className="label-value" style={{ fontSize: '13.5pt' }}>
                     {quantity} {unit || '只'}
                   </span>
                 </div>
@@ -221,7 +245,13 @@ function LabelLarge({
           <div className="label-right">
             <img src={stampImg} alt="检验合格" className="label-stamp" />
             <div className="label-qrcode">
-              {qrDataUrl && <img src={qrDataUrl} alt="QR Code" />}
+              <QRCodeSVG
+                value={qrContent}
+                size={80}
+                level="M"
+                marginSize={1}
+                includeMargin={false}
+              />
             </div>
           </div>
         )}

@@ -48,6 +48,7 @@ interface CombinedLabelItem {
   code: string
   description: string
   quantity: number
+  unit?: string
 }
 
 interface PickingOrderPageProps {
@@ -58,6 +59,7 @@ interface PickingOrderPageProps {
     quantity: number
     unit: string
     combinedItems?: CombinedLabelItem[]
+    boxNo?: number
   }) => void
   initialOrderNo?: string
   onOrderLoaded?: (orderNo: string) => void
@@ -110,7 +112,8 @@ function PickingOrderPage({ onOpenPrintLabel, initialOrderNo, onOrderLoaded }: P
   const [combineModalOpen, setCombineModalOpen] = useState(false)
   const [combineItems, setCombineItems] = useState<PickingOrderItem[]>([])
   const [combineQtyMap, setCombineQtyMap] = useState<Record<number, number>>({})
-  const [combineUnit, setCombineUnit] = useState<'只' | '套'>('只')
+  const [combineUnitMap, setCombineUnitMap] = useState<Record<number, '只' | '套'>>({})
+  const [combineBoxNo, setCombineBoxNo] = useState<number | undefined>(undefined)
 
   // 出库选择 modal：拆 / 不拆
   const [outboundChoiceOpen, setOutboundChoiceOpen] = useState(false)
@@ -763,14 +766,17 @@ function PickingOrderPage({ onOpenPrintLabel, initialOrderNo, onOrderLoaded }: P
       return
     }
 
-    // 初始化拼箱数量（默认取待配数量，即订单数量 - 已出库量）
+    // 初始化拼箱数量和单位（数量默认取待配数量，单位默认“只”）
     const initialQty: Record<number, number> = {}
+    const initialUnit: Record<number, '只' | '套'> = {}
     items.forEach((item) => {
       const remaining = item.quantity - (item.picked_quantity ?? 0)
       initialQty[item.id] = remaining > 0 ? remaining : item.quantity
+      initialUnit[item.id] = (item.unit === '套' ? '套' : '只') as '只' | '套'
     })
     setCombineItems(items)
     setCombineQtyMap(initialQty)
+    setCombineUnitMap(initialUnit)
     setCombineModalOpen(true)
   }, [onOpenPrintLabel, selectedIds, currentOrderNo, orderItems])
 
@@ -785,10 +791,12 @@ function PickingOrderPage({ onOpenPrintLabel, initialOrderNo, onOrderLoaded }: P
     }
     const combinedItems: CombinedLabelItem[] = combineItems.map((item) => {
       const qty = combineQtyMap[item.id] ?? item.quantity
+      const unit = combineUnitMap[item.id] ?? '只'
       return {
         code: item.product_code,
         description: item.description || item.product_code,
-        quantity: qty > 0 ? qty : item.quantity
+        quantity: qty > 0 ? qty : item.quantity,
+        unit
       }
     })
 
@@ -805,11 +813,12 @@ function PickingOrderPage({ onOpenPrintLabel, initialOrderNo, onOrderLoaded }: P
       orderNo: currentOrderNo,
       projectName: first.project_name,
       quantity: combinedItems[0].quantity,
-      unit: combineUnit,
-      combinedItems
+      unit: first.unit ?? '只',
+      combinedItems,
+      boxNo: combineBoxNo != null && combineBoxNo > 0 ? combineBoxNo : undefined
     })
     setCombineModalOpen(false)
-  }, [onOpenPrintLabel, currentOrderNo, combineItems, combineQtyMap, combineUnit])
+  }, [onOpenPrintLabel, currentOrderNo, combineItems, combineQtyMap, combineUnitMap, combineBoxNo])
 
   const handleBatchOutbound = useCallback(() => {
     if (selectedIds.length === 0) {
@@ -1647,23 +1656,25 @@ function PickingOrderPage({ onOpenPrintLabel, initialOrderNo, onOrderLoaded }: P
         destroyOnClose
       >
         <div style={{ marginTop: 8 }}>
+          <div style={{ marginBottom: 8, fontSize: 12, color: '#666' }}>
+            请为每行物料选择数量及单位（套/只），可填写箱号（如 4 表示 4 号箱，会打印为 4#），然后点击「跳转打印大标签」。
+          </div>
           <div
             style={{
-              marginBottom: 12,
               display: 'flex',
               alignItems: 'center',
+              marginBottom: 16,
               gap: 8
             }}
           >
-            <Text style={{ fontSize: 13 }}>拼箱单位：</Text>
-            <Radio.Group
-              value={combineUnit}
-              onChange={(e) => setCombineUnit(e.target.value)}
-              size="small"
-            >
-              <Radio.Button value="只">只</Radio.Button>
-              <Radio.Button value="套">套</Radio.Button>
-            </Radio.Group>
+            <span style={{ width: 60, fontSize: 12 }}>箱号：</span>
+            <InputNumber
+              min={1}
+              placeholder="如 4 表示 4 号箱"
+              value={combineBoxNo}
+              onChange={(v) => setCombineBoxNo(v ?? undefined)}
+              style={{ width: 140 }}
+            />
           </div>
           {combineItems.map((item) => (
             <div
@@ -1671,8 +1682,9 @@ function PickingOrderPage({ onOpenPrintLabel, initialOrderNo, onOrderLoaded }: P
               style={{
                 display: 'flex',
                 alignItems: 'center',
-                marginBottom: 8,
-                gap: 8
+                marginBottom: 10,
+                gap: 8,
+                flexWrap: 'wrap'
               }}
             >
               <span style={{ width: 140, fontFamily: 'monospace', fontSize: 12 }}>
@@ -1681,6 +1693,7 @@ function PickingOrderPage({ onOpenPrintLabel, initialOrderNo, onOrderLoaded }: P
               <span
                 style={{
                   flex: 1,
+                  minWidth: 120,
                   fontSize: 12,
                   overflow: 'hidden',
                   textOverflow: 'ellipsis',
@@ -1700,14 +1713,23 @@ function PickingOrderPage({ onOpenPrintLabel, initialOrderNo, onOrderLoaded }: P
                     [item.id]: v ?? 0
                   }))
                 }
-                style={{ width: 100 }}
-                addonAfter={combineUnit}
+                style={{ width: 90 }}
               />
+              <Radio.Group
+                value={combineUnitMap[item.id] ?? '只'}
+                onChange={(e) =>
+                  setCombineUnitMap((prev) => ({
+                    ...prev,
+                    [item.id]: e.target.value
+                  }))
+                }
+                size="small"
+              >
+                <Radio.Button value="只">只</Radio.Button>
+                <Radio.Button value="套">套</Radio.Button>
+              </Radio.Group>
             </div>
           ))}
-          <div style={{ marginTop: 4, fontSize: 12, color: '#999' }}>
-            请确认每个物料的拼箱数量，并在上方选择单位（只/套），然后点击「跳转打印大标签」。
-          </div>
         </div>
       </Modal>
 

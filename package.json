@@ -1,6 +1,6 @@
 {
   "name": "inventory-management",
-  "version": "2.3.7",
+  "version": "2.3.11",
   "description": "库存管理系统",
   "main": "./out/main/index.js",
   "scripts": {
@@ -23,6 +23,7 @@
     "jsonwebtoken": "^9.0.3",
     "multer": "^2.0.2",
     "qrcode": "^1.5.4",
+    "qrcode.react": "^4.2.0",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
     "xlsx": "^0.18.5"

@@ -6,11 +6,12 @@ import stampImg from '../assets/stamp.png'
 
 interface LabelSmallProps {
   product: Product
+  productCode?: string
   quantity?: number
   unit?: string
 }
 
-function LabelSmall({ product, quantity, unit }: LabelSmallProps): JSX.Element {
+function LabelSmall({ product, productCode, quantity, unit }: LabelSmallProps): JSX.Element {
   const [qrDataUrl, setQrDataUrl] = useState<string>('')
 
   // 当天日期
@@ -19,9 +20,11 @@ function LabelSmall({ product, quantity, unit }: LabelSmallProps): JSX.Element {
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
   }, [])
 
+  const displayCode = productCode ?? product.code
+
   // 生成二维码（只包含物品编码）
   useEffect(() => {
-    const qrContent = product.code
+    const qrContent = displayCode
 
     QRCode.toDataURL(qrContent, {
       width: 200,
@@ -30,7 +33,7 @@ function LabelSmall({ product, quantity, unit }: LabelSmallProps): JSX.Element {
     })
       .then(setQrDataUrl)
       .catch(() => setQrDataUrl(''))
-  }, [product])
+  }, [displayCode])
 
   return (
     <div className="label-small">
@@ -40,7 +43,7 @@ function LabelSmall({ product, quantity, unit }: LabelSmallProps): JSX.Element {
       </div>
       <div className="label-content">
         <div className="label-left">
-          <div className="label-row"><span className="label-field">物料编码 :</span> {product.code}</div>
+          <div className="label-row"><span className="label-field">物料编码 :</span> {displayCode}</div>
           <div className="label-row label-row-desc"><span className="label-field">物料描述 :</span> <span className="label-desc-value">{product.description || '-'}</span></div>
           <div className="label-row"><span className="label-field">数　　量 :</span> {quantity ? `${quantity} ${unit || '只'}` : '-'}</div>
           <div className="label-row"><span className="label-field">日　　期 :</span> <span className="label-date-value">{today}</span></div>
