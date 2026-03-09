@@ -100,6 +100,7 @@ function PickingOrderPage({ onOpenPrintLabel, initialOrderNo, onOrderLoaded }: P
   const [importing, setImporting] = useState(false)
   const [importOverwriteMode, setImportOverwriteMode] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const searchInputRef = useRef<any>(null)
 
   // Order management drawer
   const [orderListVisible, setOrderListVisible] = useState(false)
@@ -155,6 +156,8 @@ function PickingOrderPage({ onOpenPrintLabel, initialOrderNo, onOrderLoaded }: P
       message.error('查询出错')
     } finally {
       setLoading(false)
+      // 搜索完成后重新聚焦搜索框，便于连续扫码下一单
+      setTimeout(() => searchInputRef.current?.focus?.(), 80)
     }
   }, [onOrderLoaded])
 
@@ -168,6 +171,12 @@ function PickingOrderPage({ onOpenPrintLabel, initialOrderNo, onOrderLoaded }: P
     setOrderNoInput(initialOrderNo)
     loadOrder(initialOrderNo)
   }, [initialOrderNo, currentOrderNo, loadOrder])
+
+  // 进入页面时默认聚焦搜索框，便于扫码枪扫条形码后回车搜索
+  useEffect(() => {
+    const timer = setTimeout(() => searchInputRef.current?.focus?.(), 100)
+    return () => clearTimeout(timer)
+  }, [])
 
   const handleDeleteItem = useCallback(async (id: number) => {
     try {
@@ -1084,7 +1093,8 @@ function PickingOrderPage({ onOpenPrintLabel, initialOrderNo, onOrderLoaded }: P
       <Card size="small" style={{ marginBottom: 12 }}>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
           <Input
-            placeholder="输入完整单号后按回车查询"
+            ref={searchInputRef}
+            placeholder="扫码或输入单号后按回车查询"
             value={orderNoInput}
             onChange={(e) => setOrderNoInput(e.target.value)}
             onPressEnter={handleSearch}
