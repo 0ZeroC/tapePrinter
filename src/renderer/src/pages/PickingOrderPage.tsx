@@ -112,6 +112,7 @@ function PickingOrderPage({ onOpenPrintLabel, initialOrderNo, onOrderLoaded }: P
   // Combine label modal
   const [combineModalOpen, setCombineModalOpen] = useState(false)
   const [combineItems, setCombineItems] = useState<PickingOrderItem[]>([])
+  const [combineCodeMap, setCombineCodeMap] = useState<Record<number, string>>({})
   const [combineQtyMap, setCombineQtyMap] = useState<Record<number, number>>({})
   const [combineUnitMap, setCombineUnitMap] = useState<Record<number, '只' | '套'>>({})
   const [combineBoxNo, setCombineBoxNo] = useState<number | undefined>(undefined)
@@ -775,15 +776,18 @@ function PickingOrderPage({ onOpenPrintLabel, initialOrderNo, onOrderLoaded }: P
       return
     }
 
-    // 初始化拼箱数量和单位（数量默认取待配数量，单位默认“只”）
+    // 初始化拼箱物料编码、数量和单位（数量默认取待配数量，单位默认“只”）
+    const initialCode: Record<number, string> = {}
     const initialQty: Record<number, number> = {}
     const initialUnit: Record<number, '只' | '套'> = {}
     items.forEach((item) => {
+      initialCode[item.id] = item.product_code
       const remaining = item.quantity - (item.picked_quantity ?? 0)
       initialQty[item.id] = remaining > 0 ? remaining : item.quantity
       initialUnit[item.id] = (item.unit === '套' ? '套' : '只') as '只' | '套'
     })
     setCombineItems(items)
+    setCombineCodeMap(initialCode)
     setCombineQtyMap(initialQty)
     setCombineUnitMap(initialUnit)
     setCombineModalOpen(true)
@@ -798,16 +802,21 @@ function PickingOrderPage({ onOpenPrintLabel, initialOrderNo, onOrderLoaded }: P
       message.error('拼箱数据有误，请重新选择（至少需要 2 个物料）')
       return
     }
-    const combinedItems: CombinedLabelItem[] = combineItems.map((item) => {
+    const withProject = combineItems.map((item) => {
+      const code = (combineCodeMap[item.id] ?? item.product_code).trim()
       const qty = combineQtyMap[item.id] ?? item.quantity
       const unit = combineUnitMap[item.id] ?? '只'
       return {
-        code: item.product_code,
+        code, // 编码被清空时传空字符串，标签上不显示编码但仍显示描述和数量
         description: item.description || item.product_code,
         quantity: qty > 0 ? qty : item.quantity,
-        unit
+        unit,
+        projectName: item.project_name
       }
     })
+    const combinedItems: CombinedLabelItem[] = withProject.map(
+      ({ projectName: _, ...rest }) => rest
+    )
 
     // 校验数量必须大于 0
     if (combinedItems.some((it) => !it.quantity || it.quantity <= 0)) {
@@ -815,19 +824,24 @@ function PickingOrderPage({ onOpenPrintLabel, initialOrderNo, onOrderLoaded }: P
       return
     }
 
-    const first = combineItems[0]
+    const firstWithCode = withProject.find((it) => it.code)
+    const first = combinedItems[0]
 
     onOpenPrintLabel({
-      productCode: first.product_code,
+      productCode: firstWithCode?.code ?? combineItems[0]?.product_code ?? '',
       orderNo: currentOrderNo,
-      projectName: first.project_name,
-      quantity: combinedItems[0].quantity,
+      projectName: firstWithCode?.project_name ?? combineItems[0]?.project_name ?? '',
+      quantity: first.quantity,
       unit: first.unit ?? '只',
       combinedItems,
       boxNo: combineBoxNo != null && combineBoxNo > 0 ? combineBoxNo : undefined
     })
     setCombineModalOpen(false)
-  }, [onOpenPrintLabel, currentOrderNo, combineItems, combineQtyMap, combineUnitMap, combineBoxNo])
+  }, [onOpenPrintLabel, currentOrderNo, combineItems, combineCodeMap, combineQtyMap, combineUnitMap, combineBoxNo])
+
+  const handleCombineCodeChange = useCallback((itemId: number, value: string) => {
+    setCombineCodeMap((prev) => ({ ...prev, [itemId]: value }))
+  }, [])
 
   const handleBatchOutbound = useCallback(() => {
     if (selectedIds.length === 0) {
@@ -1667,7 +1681,7 @@ function PickingOrderPage({ onOpenPrintLabel, initialOrderNo, onOrderLoaded }: P
       >
         <div style={{ marginTop: 8 }}>
           <div style={{ marginBottom: 8, fontSize: 12, color: '#666' }}>
-            请为每行物料选择数量及单位（套/只），可填写箱号（如 4 表示 4 号箱，会打印为 4#），然后点击「跳转打印大标签」。
+            可编辑物料编码（支持清空后重新输入），选择数量及单位（套/只），可填写箱号（如 4 表示 4 号箱，会打印为 4#），然后点击「跳转打印大标签」。
           </div>
           <div
             style={{
@@ -1697,9 +1711,12 @@ function PickingOrderPage({ onOpenPrintLabel, initialOrderNo, onOrderLoaded }: P
                 flexWrap: 'wrap'
               }}
             >
-              <span style={{ width: 140, fontFamily: 'monospace', fontSize: 12 }}>
-                {item.product_code}
-              </span>
+              <Input
+                value={combineCodeMap[item.id] ?? item.product_code}
+                onChange={(e) => handleCombineCodeChange(item.id, e.target.value)}
+                placeholder="物料编码"
+                style={{ width: 140, fontFamily: 'monospace', fontSize: 12 }}
+              />
               <span
                 style={{
                   flex: 1,
