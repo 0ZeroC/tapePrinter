@@ -67,6 +67,9 @@ function LabelLarge({
 
   return (
     <div className="label-large">
+      {combinedItems && combinedItems.length > 0 && (
+        <img src={stampImg} alt="检验合格" className="label-combined-stamp-overlay" />
+      )}
       <div className="label-title">
         <img src={logoImg} alt="logo" className="label-logo" />
         <span>扬州硕瑞机电有限公司</span>
@@ -82,18 +85,20 @@ function LabelLarge({
                   style={{
                     fontSize: `${orderFontSize}pt`,
                     whiteSpace: 'normal',
-                    wordBreak: 'break-all'
+                    wordBreak: 'break-all',
+                    flex: '0 0 auto',
+                    marginRight: '3mm'
                   }}
                 >
                   {orderNo || '-'}
                 </span>
-                {' '}
                 <span
                   className="label-value"
                   style={{
                     fontSize: `${projectFontSize}pt`,
                     whiteSpace: 'normal',
-                    wordBreak: 'break-all'
+                    wordBreak: 'break-all',
+                    flex: '0 0 auto'
                   }}
                 >
                   {projectName || '-'}
@@ -184,7 +189,7 @@ function LabelLarge({
                   <span
                     className="label-value"
                     style={{
-                      fontSize: '11.5pt',
+                      fontSize: '23pt',
                       whiteSpace: 'nowrap',
                       marginLeft: '8mm'
                     }}
