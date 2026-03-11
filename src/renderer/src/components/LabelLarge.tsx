@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useMemo, type ReactElement } from 'react'
 import { QRCodeSVG } from 'qrcode.react'
 import type { Product } from '../utils/api'
 import logoImg from '../assets/logo.png'
@@ -38,8 +38,10 @@ function LabelLarge({
   descFontSizePt,
   combinedItems,
   boxNo
-}: LabelLargeProps): JSX.Element {
+}: LabelLargeProps): ReactElement {
   const displayCode = productCode ?? product.code
+  const displayCombinedItems = combinedItems?.slice(0, 4) ?? []
+  const isCombinedDense = displayCombinedItems.length >= 4
 
   // 当天日期
   const today = useMemo(() => {
@@ -78,30 +80,30 @@ function LabelLarge({
         <div className="label-details">
           {combinedItems && combinedItems.length > 0 ? (
             <>
-              {/* 第二行：订单号 + 工程名称（同一行，空格间隔） */}
+              {/* 第二行：订单号 + 工程名称在同一文本流中，换行从左侧顶格开始 */}
               <div className="label-row">
                 <span
                   className="label-value"
                   style={{
-                    fontSize: `${orderFontSize}pt`,
                     whiteSpace: 'normal',
-                    wordBreak: 'break-all',
-                    flex: '0 0 auto',
-                    marginRight: '3mm'
+                    wordBreak: 'break-all'
                   }}
                 >
-                  {orderNo || '-'}
-                </span>
-                <span
-                  className="label-value"
-                  style={{
-                    fontSize: `${projectFontSize}pt`,
-                    whiteSpace: 'normal',
-                    wordBreak: 'break-all',
-                    flex: '0 0 auto'
-                  }}
-                >
-                  {projectName || '-'}
+                  <span
+                    style={{
+                      fontSize: `${orderFontSize}pt`
+                    }}
+                  >
+                    {orderNo || '-'}
+                  </span>
+                  {' '}
+                  <span
+                    style={{
+                      fontSize: `${projectFontSize}pt`
+                    }}
+                  >
+                    {projectName || '-'}
+                  </span>
                 </span>
               </div>
               {/* 第四行：表头 “物料编码” “物料描述” “数量” */}
@@ -137,13 +139,20 @@ function LabelLarge({
                   数量
                 </span>
               </div>
-              {/* 第四~六行：三个物料行 描述 + 订单数量/配货数量 */}
-              {combinedItems.slice(0, 3).map((item, index) => (
-                <div className="label-row label-row-combined-item" key={index}>
+              {/* 物料行：最多展示 4 条 */}
+              {displayCombinedItems.map((item, index) => (
+                <div
+                  className="label-row label-row-combined-item"
+                  key={index}
+                  style={{
+                    marginBottom: isCombinedDense ? '2mm' : undefined,
+                    lineHeight: isCombinedDense ? 1.45 : undefined
+                  }}
+                >
                   <span
                     className="label-value label-code-value"
                     style={{
-                      fontSize: '9pt',
+                      fontSize: isCombinedDense ? '8pt' : '9pt',
                       minWidth: '25mm',
                       width: '25mm',
                       whiteSpace: 'nowrap',
@@ -156,7 +165,7 @@ function LabelLarge({
                   <span
                     className="label-value label-desc-value"
                     style={{
-                      fontSize: `${Math.max(descFontSize - 2, 8)}pt`,
+                      fontSize: `${Math.max(descFontSize - (isCombinedDense ? 3 : 2), 8)}pt`,
                       minWidth: '45mm',
                       width: '45mm'
                     }}
@@ -166,7 +175,7 @@ function LabelLarge({
                   <span
                     className="label-value"
                     style={{
-                      fontSize: `${projectFontSize}pt`,
+                      fontSize: `${Math.max(projectFontSize - (isCombinedDense ? 1 : 0), 9)}pt`,
                       minWidth: '19mm',
                       width: '19mm',
                       textAlign: 'right',

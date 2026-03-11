@@ -599,6 +599,21 @@ export function revokeInventoryLog(
   operatorId?: number,
   operatorName?: string
 ): void {
+  const extractPickingOrderNo = (remark: string): string | null => {
+    const withLabel = remark.match(/订单号[:：]\s*([^\s，,;；]+)/)
+    if (withLabel) return withLabel[1]
+    const shortLabel = remark.match(/单号([^\s，,;；]+)/)
+    if (shortLabel) return shortLabel[1]
+    return null
+  }
+
+  const extractPickingSeqNo = (remark: string): number | null => {
+    const match = remark.match(/序号(\d+)/)
+    if (!match) return null
+    const seqNo = parseInt(match[1], 10)
+    return Number.isNaN(seqNo) ? null : seqNo
+  }
+
   const txn = db.transaction(() => {
     const log = db.prepare('SELECT * FROM inventory_logs WHERE id = ?').get(logId) as InventoryLog | undefined
     if (!log) throw new Error('记录不存在')
@@ -649,6 +664,54 @@ export function revokeInventoryLog(
         db.prepare('INSERT INTO inventory (product_id, quantity) VALUES (?, ?)').run(
           log.product_id, log.quantity
         )
+      }
+
+      // 普通配货出库撤销：回滚对应配货行状态
+      if ((log.remark || '').includes('[配货出库]')) {
+        const remarkText = log.remark || ''
+        const orderNo = extractPickingOrderNo(remarkText)
+        if (orderNo) {
+          const seqNo = extractPickingSeqNo(remarkText)
+          const product = db.prepare('SELECT code FROM products WHERE id = ?').get(log.product_id) as { code: string } | undefined
+          if (product?.code) {
+            let pickItem: PickingOrderItem | undefined
+            if (seqNo !== null) {
+              pickItem = db.prepare(
+                `SELECT * FROM picking_order_items
+                 WHERE order_no = ? AND seq_no = ? AND product_code = ?
+                 LIMIT 1`
+              ).get(orderNo, seqNo, product.code) as PickingOrderItem | undefined
+            } else {
+              pickItem = db.prepare(
+                `SELECT * FROM picking_order_items
+                 WHERE order_no = ? AND product_code = ? AND (is_picked = 1 OR COALESCE(picked_quantity, 0) > 0)
+                 ORDER BY is_picked DESC, updated_at DESC, id DESC
+                 LIMIT 1`
+              ).get(orderNo, product.code) as PickingOrderItem | undefined
+            }
+
+            if (pickItem) {
+              const revokedQtyPieces = log.quantity * 1000
+              const currentPickedQty = pickItem.picked_quantity ?? 0
+              const nextPickedQty = Math.max(0, currentPickedQty - revokedQtyPieces)
+              if (nextPickedQty <= 0) {
+                db.prepare(`
+                  UPDATE picking_order_items
+                  SET is_picked = 0, picked_quantity = NULL, pick_remark = '', picked_at = NULL, picked_by = '',
+                      updated_at = datetime('now', 'localtime')
+                  WHERE id = ?
+                `).run(pickItem.id)
+              } else {
+                const isPicked = nextPickedQty >= pickItem.quantity ? 1 : 0
+                db.prepare(`
+                  UPDATE picking_order_items
+                  SET is_picked = ?, picked_quantity = ?, updated_at = datetime('now', 'localtime')
+                  WHERE id = ?
+                `).run(isPicked, nextPickedQty, pickItem.id)
+              }
+            }
+          }
+        }
       }
     }
     db.prepare('DELETE FROM inventory_logs WHERE id = ?').run(logId)
@@ -1223,6 +1286,7 @@ export function confirmPickingItems(
         const orderQty = pickItem.quantity
         const alreadyPicked = pickItem.picked_quantity ?? 0
         const thisOutQty = item.pickedQty > 0 ? item.pickedQty : (orderQty - alreadyPicked)
+        const inventoryOutQty = thisOutQty / 1000
         const newCumulative = alreadyPicked + thisOutQty
         const isComplete = newCumulative >= orderQty
 
@@ -1230,14 +1294,14 @@ export function confirmPickingItems(
         if (product) {
           const existing = findInventory.get(product.id)
           if (existing) {
-            subInventory.run(thisOutQty, product.id)
+            subInventory.run(inventoryOutQty, product.id)
           } else {
-            insertInventory.run(product.id, -thisOutQty)
+            insertInventory.run(product.id, -inventoryOutQty)
           }
-          const remarkText = item.remark
-            ? `[配货出库] ${item.remark}`
-            : `[配货出库] 单号${pickItem.order_no} 本次${thisOutQty}${pickItem.unit || '只'}`
-          insertLog.run(product.id, 'out', thisOutQty, remarkText, operatorId ?? null, operatorName ?? '')
+          const remarkBase = item.remark || `单号${pickItem.order_no} 本次${thisOutQty}${pickItem.unit || '只'}`
+          const remarkWithSeq = remarkBase.includes('序号') ? remarkBase : `${remarkBase}，序号${pickItem.seq_no}`
+          const remarkText = `[配货出库] ${remarkWithSeq}`
+          insertLog.run(product.id, 'out', inventoryOutQty, remarkText, operatorId ?? null, operatorName ?? '')
         } else {
           inventoryErrors.push(`物料「${pickItem.product_code}」不在库存系统中，已标记配货但未扣减库存`)
         }
@@ -1281,14 +1345,34 @@ export function resetPickingItems(
   const getSplits = db.prepare(
     'SELECT component_code, quantity_pieces FROM picking_order_splits WHERE picking_item_id = ? ORDER BY id ASC'
   )
+  const getOutLogsBySplitMarkers = db.prepare(`
+    SELECT id, product_id, quantity
+    FROM inventory_logs
+    WHERE type = 'out' AND remark LIKE '%[配货拆出库]%'
+      AND instr(remark, ?) > 0
+      AND instr(remark, ?) > 0
+  `)
+  const getOutLogsByOrderAndProduct = db.prepare(`
+    SELECT id, product_id, quantity
+    FROM inventory_logs
+    WHERE type = 'out' AND product_id = ? AND remark LIKE '%[配货出库]%'
+      AND (
+        instr(remark, ?) > 0 OR instr(remark, ?) > 0
+      )
+  `)
+  const getOutLogsByOrderProductAndSeq = db.prepare(`
+    SELECT id, product_id, quantity
+    FROM inventory_logs
+    WHERE type = 'out' AND product_id = ? AND remark LIKE '%[配货出库]%'
+      AND instr(remark, ?) > 0
+      AND instr(remark, ?) > 0
+  `)
+  const deleteLogById = db.prepare('DELETE FROM inventory_logs WHERE id = ?')
   const findProduct = db.prepare('SELECT id FROM products WHERE code = ?')
   const findInventory = db.prepare('SELECT id FROM inventory WHERE product_id = ?')
   const insertInventory = db.prepare('INSERT INTO inventory (product_id, quantity) VALUES (?, ?)')
   const addInventory = db.prepare(
     'UPDATE inventory SET quantity = quantity + ?, updated_at = CURRENT_TIMESTAMP WHERE product_id = ?'
-  )
-  const insertLog = db.prepare(
-    'INSERT INTO inventory_logs (product_id, type, quantity, remark, operator_id, operator_name) VALUES (?, ?, ?, ?, ?, ?)'
   )
   const deleteSplits = db.prepare('DELETE FROM picking_order_splits WHERE picking_item_id = ?')
   const resetItem = db.prepare(`
@@ -1311,17 +1395,33 @@ export function resetPickingItems(
 
       // 部分出库（is_picked=0 但 picked_quantity>0）：恢复库存并清除累计出库
       if (item.is_picked === 0 && (item.picked_quantity ?? 0) > 0) {
-        const qty = item.picked_quantity!
         const prod = findProduct.get(item.product_code) as { id: number } | undefined
         if (prod) {
-          const existing = findInventory.get(prod.id)
-          if (existing) {
-            addInventory.run(qty, prod.id)
-          } else {
-            insertInventory.run(prod.id, qty)
+          const orderMarkerA = `订单号：${item.order_no}`
+          const orderMarkerB = `单号${item.order_no}`
+          const seqMarker = `序号${item.seq_no}`
+          const relatedLogsBySeq = getOutLogsByOrderProductAndSeq.all(
+            prod.id,
+            orderMarkerA,
+            seqMarker
+          ) as { id: number; product_id: number; quantity: number }[]
+          const relatedLogs = (relatedLogsBySeq.length > 0 ? relatedLogsBySeq : getOutLogsByOrderAndProduct.all(
+            prod.id,
+            orderMarkerA,
+            orderMarkerB
+          )) as { id: number; product_id: number; quantity: number }[]
+          const restoreQty = relatedLogs.reduce((sum, row) => sum + row.quantity, 0)
+          if (restoreQty > 0) {
+            const existing = findInventory.get(prod.id)
+            if (existing) {
+              addInventory.run(restoreQty, prod.id)
+            } else {
+              insertInventory.run(prod.id, restoreQty)
+            }
+            for (const row of relatedLogs) {
+              deleteLogById.run(row.id)
+            }
           }
-          const remark = `[配货部分撤销恢复] 单号${item.order_no} 序号${item.seq_no} 原编码${item.product_code} 数量${qty}`
-          insertLog.run(prod.id, 'in', qty, remark, operatorId ?? null, operatorName ?? '')
         }
         resetPartialItem.run(id)
         count++
@@ -1333,34 +1433,60 @@ export function resetPickingItems(
       const splits = getSplits.all(id) as { component_code: string; quantity_pieces: number }[]
 
       if (splits.length > 0) {
-        // 拆分出库：恢复各子件库存
-        for (const s of splits) {
-          const prod = findProduct.get(s.component_code) as { id: number } | undefined
-          if (prod) {
-            const qtyThousands = s.quantity_pieces / 1000
-            const existing = findInventory.get(prod.id)
+        // 拆分出库：恢复库存并删除该配货行对应的拆分出库日志
+        const orderMarker = '单号' + item.order_no
+        const seqMarker = '序号' + item.seq_no + ' '
+        const relatedLogs = getOutLogsBySplitMarkers.all(orderMarker, seqMarker) as {
+          id: number
+          product_id: number
+          quantity: number
+        }[]
+        if (relatedLogs.length > 0) {
+          const restoreMap = new Map<number, number>()
+          for (const row of relatedLogs) {
+            restoreMap.set(row.product_id, (restoreMap.get(row.product_id) || 0) + row.quantity)
+          }
+          for (const [productId, restoreQty] of restoreMap.entries()) {
+            const existing = findInventory.get(productId)
             if (existing) {
-              addInventory.run(qtyThousands, prod.id)
+              addInventory.run(restoreQty, productId)
             } else {
-              insertInventory.run(prod.id, qtyThousands)
+              insertInventory.run(productId, restoreQty)
             }
-            const remark = `[配货撤销恢复] 单号${item.order_no} 序号${item.seq_no} 原拆分子件${s.component_code} 数量${s.quantity_pieces}只`
-            insertLog.run(prod.id, 'in', qtyThousands, remark, operatorId ?? null, operatorName ?? '')
+          }
+          for (const row of relatedLogs) {
+            deleteLogById.run(row.id)
           }
         }
       } else {
-        // 普通出库：恢复主物料库存
-        const qty = item.picked_quantity ?? item.quantity
+        // 普通出库：恢复库存并删除对应出库日志
         const prod = findProduct.get(item.product_code) as { id: number } | undefined
         if (prod) {
-          const existing = findInventory.get(prod.id)
-          if (existing) {
-            addInventory.run(qty, prod.id)
-          } else {
-            insertInventory.run(prod.id, qty)
+          const orderMarkerA = `订单号：${item.order_no}`
+          const orderMarkerB = `单号${item.order_no}`
+          const seqMarker = `序号${item.seq_no}`
+          const relatedLogsBySeq = getOutLogsByOrderProductAndSeq.all(
+            prod.id,
+            orderMarkerA,
+            seqMarker
+          ) as { id: number; product_id: number; quantity: number }[]
+          const relatedLogs = (relatedLogsBySeq.length > 0 ? relatedLogsBySeq : getOutLogsByOrderAndProduct.all(
+            prod.id,
+            orderMarkerA,
+            orderMarkerB
+          )) as { id: number; product_id: number; quantity: number }[]
+          const restoreQty = relatedLogs.reduce((sum, row) => sum + row.quantity, 0)
+          if (restoreQty > 0) {
+            const existing = findInventory.get(prod.id)
+            if (existing) {
+              addInventory.run(restoreQty, prod.id)
+            } else {
+              insertInventory.run(prod.id, restoreQty)
+            }
+            for (const row of relatedLogs) {
+              deleteLogById.run(row.id)
+            }
           }
-          const remark = `[配货撤销恢复] 单号${item.order_no} 序号${item.seq_no} 原编码${item.product_code}`
-          insertLog.run(prod.id, 'in', qty, remark, operatorId ?? null, operatorName ?? '')
         }
       }
 

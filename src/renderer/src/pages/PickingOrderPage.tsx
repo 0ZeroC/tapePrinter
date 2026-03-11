@@ -759,8 +759,8 @@ function PickingOrderPage({ onOpenPrintLabel, initialOrderNo, onOrderLoaded }: P
       message.warning('请先勾选要拼箱的物料')
       return
     }
-    if (selectedIds.length < 2 || selectedIds.length > 3) {
-      message.warning('拼箱标签目前仅支持同时选择 2～3 个物料')
+    if (selectedIds.length < 2 || selectedIds.length > 4) {
+      message.warning('拼箱标签目前仅支持同时选择 2～4 个物料')
       return
     }
     if (!currentOrderNo) {
@@ -771,7 +771,7 @@ function PickingOrderPage({ onOpenPrintLabel, initialOrderNo, onOrderLoaded }: P
       .map((id) => orderItems.find((i) => i.id === id))
       .filter((i): i is PickingOrderItem => !!i)
 
-    if (items.length < 2 || items.length > 3 || items.length !== selectedIds.length) {
+    if (items.length < 2 || items.length > 4 || items.length !== selectedIds.length) {
       message.error('选中的物料数据有误，请重新选择')
       return
     }
@@ -928,6 +928,38 @@ function PickingOrderPage({ onOpenPrintLabel, initialOrderNo, onOrderLoaded }: P
       }
     })
   }, [selectedIds, orderItems, currentOrderNo, loadOrder])
+
+  const isRuleMatchedItem = useCallback((item: PickingOrderItem) => {
+    const description = (item.description || '').trim()
+    const hasFu = description.includes('副')
+    const has1228 = description.includes('1228')
+    // 规则：勾选描述不含“副”的，另外也勾选同时含“副”和“1228”的行
+    return !hasFu || (hasFu && has1228)
+  }, [])
+
+  const handleSelectByRule = useCallback(() => {
+    const selectableItems = orderItems.filter((item) => item.is_picked !== 1)
+    if (selectableItems.length === 0) {
+      message.warning('当前无可勾选条目')
+      return
+    }
+    const matchedIds = selectableItems.filter(isRuleMatchedItem).map((item) => item.id)
+    setSelectedIds(matchedIds)
+    message.success(`已按规则勾选 ${matchedIds.length} 条`)
+  }, [orderItems, isRuleMatchedItem])
+
+  const handleInverseRuleSelection = useCallback(() => {
+    const selectableItems = orderItems.filter((item) => item.is_picked !== 1)
+    if (selectableItems.length === 0) {
+      message.warning('当前无可勾选条目')
+      return
+    }
+    const inverseIds = selectableItems
+      .filter((item) => !isRuleMatchedItem(item))
+      .map((item) => item.id)
+    setSelectedIds(inverseIds)
+    message.success(`已反选规则结果，共勾选 ${inverseIds.length} 条`)
+  }, [orderItems, isRuleMatchedItem])
 
   const columns = [
     {
@@ -1135,6 +1167,20 @@ function PickingOrderPage({ onOpenPrintLabel, initialOrderNo, onOrderLoaded }: P
             disabled={orderItems.length === 0}
           >
             统一出库
+          </Button>
+          <Button
+            size="large"
+            onClick={handleSelectByRule}
+            disabled={orderItems.length === 0}
+          >
+            勾选不含“副”和“1228”的条目
+          </Button>
+          <Button
+            size="large"
+            onClick={handleInverseRuleSelection}
+            disabled={orderItems.length === 0}
+          >
+            反选不含“副”和“1228”的条目
           </Button>
           {canManage && (
             <>

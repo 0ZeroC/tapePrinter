@@ -264,7 +264,7 @@
 .label-large .label-combined-stamp-overlay {
   position: absolute;
   top: 0;
-  right: 0;
+  right: 4mm;
   width: 16mm;
   height: 16mm;
   object-fit: contain;
@@ -280,7 +280,8 @@
   font-size: 13.5pt;
   font-weight: bold;
   padding-bottom: 1.5mm;
-  margin-bottom: 1.5mm;
+  margin-bottom: 2.5mm;
+  transform: translateX(-8mm);
 }
 
 .label-large .label-logo {
