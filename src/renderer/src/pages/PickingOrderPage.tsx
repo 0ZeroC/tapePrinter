@@ -32,11 +32,16 @@ import {
   ClearOutlined
 } from '@ant-design/icons'
 import * as XLSX from 'xlsx'
+import ExcelJS from 'exceljs'
+import JsBarcode from 'jsbarcode'
+import fallbackLogoUrl from '../assets/logo.png'
 import ResizableTable from '../components/ResizableTable'
 import { api, type PickingOrderItem, type Product, type PickingSplitRow, type PickingOrderSummary } from '../utils/api'
 import { useAuth } from '../contexts/AuthContext'
 
 const { Text } = Typography
+const DELIVERY_NOTE_TITLE = '扬州硕瑞机电有限公司 送货单'
+const DELIVERY_LOGO_URL = 'file:///C:/Users/Administrator/.cursor/projects/e-gitProjects-tapePrinter/assets/e__gitProjects_tapePrinter_____logo_transparent.png'
 
 interface SubBoltRule {
   boltCode?: string
@@ -509,6 +514,45 @@ interface PickingOrderPageProps {
   }) => void
   initialOrderNo?: string
   onOrderLoaded?: (orderNo: string) => void
+}
+
+const loadImageAsDataUrl = async (url: string): Promise<string> => {
+  const response = await fetch(url)
+  if (!response.ok) {
+    throw new Error(`加载图片失败：${response.status}`)
+  }
+  const blob = await response.blob()
+  return await new Promise<string>((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(String(reader.result || ''))
+    reader.onerror = () => reject(new Error('读取图片失败'))
+    reader.readAsDataURL(blob)
+  })
+}
+
+const loadFirstAvailableImageDataUrl = async (urls: string[]): Promise<string> => {
+  for (const url of urls) {
+    if (!url) continue
+    try {
+      return await loadImageAsDataUrl(url)
+    } catch {
+      // 尝试下一个候选地址
+    }
+  }
+  return ''
+}
+
+const buildBarcodeDataUrl = (value: string): string => {
+  const canvas = document.createElement('canvas')
+  JsBarcode(canvas, value, {
+    format: 'CODE128',
+    width: 2,
+    height: 52,
+    displayValue: true,
+    fontSize: 12,
+    margin: 4
+  })
+  return canvas.toDataURL('image/png')
 }
 
 function PickingOrderPage({ onOpenPrintLabel, initialOrderNo, onOrderLoaded }: PickingOrderPageProps): JSX.Element {
@@ -1238,6 +1282,179 @@ function PickingOrderPage({ onOpenPrintLabel, initialOrderNo, onOrderLoaded }: P
     }
   }, [])
 
+  const handleExportDeliverySheet = useCallback(async () => {
+    if (selectedIds.length === 0) {
+      message.warning('请先勾选要导出的物料')
+      return
+    }
+    if (!currentOrderNo) {
+      message.warning('请先查询订单后再导出')
+      return
+    }
+
+    const selectedItems = orderItems
+      .filter(item => selectedIds.includes(item.id))
+      .sort((a, b) => a.seq_no - b.seq_no)
+
+    if (selectedItems.length === 0) {
+      message.warning('未找到已勾选的有效条目')
+      return
+    }
+
+    const orderNos = Array.from(new Set(selectedItems.map(item => item.order_no)))
+    if (orderNos.length !== 1) {
+      message.warning('送货单导出仅支持同一订单号的条目')
+      return
+    }
+
+    try {
+      const workbook = new ExcelJS.Workbook()
+      const sheet = workbook.addWorksheet('送货单')
+      sheet.pageSetup = {
+        paperSize: 9,
+        orientation: 'portrait',
+        fitToPage: true,
+        fitToWidth: 1,
+        fitToHeight: 0
+      }
+
+      sheet.columns = [
+        { width: 10 }, // A 序号
+        { width: 22 }, // B 物料编码
+        { width: 50 }, // C 物料描述
+        { width: 10 }, // D 数量
+        { width: 26 } // E 工程名称
+      ]
+
+      const orderNo = orderNos[0]
+      const now = new Date()
+      const exportDateStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
+      const projectName = selectedItems.find(item => item.project_name?.trim())?.project_name || '-'
+      const logoDataUrl = await loadFirstAvailableImageDataUrl([DELIVERY_LOGO_URL, fallbackLogoUrl])
+      const barcodeDataUrl = buildBarcodeDataUrl(orderNo)
+      const barcodeImageId = workbook.addImage({ base64: barcodeDataUrl, extension: 'png' })
+      const logoImageId = logoDataUrl ? workbook.addImage({ base64: logoDataUrl, extension: 'png' }) : null
+
+      const applyTableBorders = (fromRow: number, toRow: number): void => {
+        for (let row = fromRow; row <= toRow; row++) {
+          for (const col of ['A', 'B', 'C', 'D', 'E']) {
+            const cell = sheet.getCell(`${col}${row}`)
+            cell.border = {
+              top: { style: 'thin' },
+              left: { style: 'thin' },
+              bottom: { style: 'thin' },
+              right: { style: 'thin' }
+            }
+          }
+        }
+      }
+
+      const renderOneCopy = (startRow: number): number => {
+        const titleRow = startRow
+        const orderRow = startRow + 1
+        const headerRow = startRow + 2
+        const materialStartRow = startRow + 3
+        const materialEndRow = materialStartRow + selectedItems.length - 1
+        const footerAddressRow = materialEndRow + 1
+        const footerSignRow = materialEndRow + 2
+
+        sheet.getCell(`C${titleRow}`).value = DELIVERY_NOTE_TITLE
+        sheet.getCell(`C${titleRow}`).alignment = { vertical: 'middle', horizontal: 'left' }
+        sheet.getCell(`C${titleRow}`).font = { bold: true, size: 16 }
+
+        if (logoImageId) {
+          sheet.addImage(logoImageId, {
+            tl: { col: 0, row: titleRow - 1 + 0.1 },
+            ext: { width: 72, height: 36 }
+          })
+        }
+
+        sheet.addImage(barcodeImageId, {
+          tl: { col: 4, row: titleRow - 1 + 0.05 },
+          ext: { width: 170, height: 40 }
+        })
+
+        sheet.mergeCells(`A${orderRow}:E${orderRow}`)
+        sheet.getCell(`A${orderRow}`).value = `购买单位：丰尚             送货日期：${exportDateStr}                      订单号：${orderNo}   `
+        sheet.getCell(`A${orderRow}`).font = { bold: true, size: 12 }
+        sheet.getCell(`A${orderRow}`).alignment = { vertical: 'middle', horizontal: 'left' }
+
+        sheet.getCell(`A${headerRow}`).value = '序号'
+        sheet.getCell(`B${headerRow}`).value = '物料编码'
+        sheet.getCell(`C${headerRow}`).value = '物料描述'
+        sheet.getCell(`D${headerRow}`).value = '数量'
+        sheet.getCell(`E${headerRow}`).value = '工程名称'
+        for (const col of ['A', 'B', 'C', 'D', 'E']) {
+          const cell = sheet.getCell(`${col}${headerRow}`)
+          cell.font = { bold: true }
+          cell.alignment = { vertical: 'middle', horizontal: 'center' }
+          cell.fill = {
+            type: 'pattern',
+            pattern: 'solid',
+            fgColor: { argb: 'FFF2F2F2' }
+          }
+        }
+
+        selectedItems.forEach((item, index) => {
+          const row = materialStartRow + index
+          sheet.getCell(`A${row}`).value = item.seq_no
+          sheet.getCell(`B${row}`).value = item.product_code || '-'
+          sheet.getCell(`C${row}`).value = item.description || '-'
+          sheet.getCell(`D${row}`).value = item.quantity
+          sheet.getCell(`A${row}`).alignment = { vertical: 'middle', horizontal: 'center' }
+          sheet.getCell(`B${row}`).alignment = { vertical: 'middle', horizontal: 'left' }
+          sheet.getCell(`C${row}`).alignment = { vertical: 'middle', horizontal: 'left', wrapText: true }
+          sheet.getCell(`D${row}`).alignment = { vertical: 'middle', horizontal: 'center' }
+        })
+
+        sheet.mergeCells(`E${materialStartRow}:E${materialEndRow}`)
+        sheet.getCell(`E${materialStartRow}`).value = projectName
+        sheet.getCell(`E${materialStartRow}`).alignment = { vertical: 'middle', horizontal: 'center', wrapText: true }
+
+        sheet.mergeCells(`A${footerAddressRow}:E${footerAddressRow}`)
+        sheet.getCell(`A${footerAddressRow}`).value = '公司地址：扬州市邗江区三盛国际广场3幢1607室                                               电话：0514-87950633'
+        sheet.getCell(`A${footerAddressRow}`).alignment = { vertical: 'middle', horizontal: 'left' }
+        sheet.getCell(`A${footerAddressRow}`).font = { size: 11 }
+
+        sheet.mergeCells(`A${footerSignRow}:E${footerSignRow}`)
+        sheet.getCell(`A${footerSignRow}`).value = '送货：                               质检：                           收货：                          '
+        sheet.getCell(`A${footerSignRow}`).alignment = { vertical: 'middle', horizontal: 'left' }
+        sheet.getCell(`A${footerSignRow}`).font = { size: 11 }
+
+        for (let row = titleRow; row <= footerSignRow; row++) {
+          sheet.getRow(row).height = row === titleRow ? 28 : 24
+        }
+        applyTableBorders(headerRow, materialEndRow)
+
+        return footerSignRow
+      }
+
+      const firstCopyEndRow = renderOneCopy(1)
+      renderOneCopy(firstCopyEndRow + 3)
+
+      const fileName = `送货单_${orderNo}_${new Date().toISOString().slice(0, 10)}.xlsx`
+      const xlsxBuffer = await workbook.xlsx.writeBuffer()
+      const blob = new Blob(
+        [xlsxBuffer],
+        { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }
+      )
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = fileName
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+      message.success(`送货单导出成功（${selectedItems.length} 条，一式两份）`)
+      if (!logoDataUrl) {
+        message.warning('未加载到公司 Logo，已导出无 Logo 版本')
+      }
+    } catch {
+      message.error('导出送货单失败，请稍后重试')
+    }
+  }, [selectedIds, currentOrderNo, orderItems])
+
   const handleBatchDeleteOrders = useCallback(async () => {
     if (selectedOrderNos.length === 0) {
       message.warning('请先选择要删除的订单')
@@ -1748,8 +1965,8 @@ function PickingOrderPage({ onOpenPrintLabel, initialOrderNo, onOrderLoaded }: P
   const rowSelection = {
     selectedRowKeys: selectedIds,
     onChange: (keys: React.Key[]) => setSelectedIds(keys as number[]),
-    getCheckboxProps: (record: PickingOrderItem) => ({
-      disabled: record.is_picked === 1
+    getCheckboxProps: (_record: PickingOrderItem) => ({
+      disabled: false
     })
   }
 
@@ -1855,14 +2072,24 @@ function PickingOrderPage({ onOpenPrintLabel, initialOrderNo, onOrderLoaded }: P
             </Space>
           }
           extra={
-            <Button
-              type="default"
-              icon={<ExportOutlined />}
-              onClick={() => handleExportOrders(currentOrderNo ? [currentOrderNo] : undefined)}
-              disabled={orderItems.length === 0}
-            >
-              导出当前订单
-            </Button>
+            <Space>
+              <Button
+                type="default"
+                icon={<ExportOutlined />}
+                onClick={handleExportDeliverySheet}
+                disabled={selectedIds.length === 0}
+              >
+                导出送货单（选中）
+              </Button>
+              <Button
+                type="default"
+                icon={<ExportOutlined />}
+                onClick={() => handleExportOrders(currentOrderNo ? [currentOrderNo] : undefined)}
+                disabled={orderItems.length === 0}
+              >
+                导出当前订单
+              </Button>
+            </Space>
           }
           style={{ flex: 1, overflow: 'auto' }}
           styles={{ body: { padding: 0 } }}

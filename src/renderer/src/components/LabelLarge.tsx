@@ -200,7 +200,9 @@ function LabelLarge({
                     style={{
                       fontSize: '23pt',
                       whiteSpace: 'nowrap',
-                      marginLeft: '8mm'
+                      marginLeft: '8mm',
+                      position: 'relative',
+                      top: '-5mm'
                     }}
                   >
                     {boxNo}#
