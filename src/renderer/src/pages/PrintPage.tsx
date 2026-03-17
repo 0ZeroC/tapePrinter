@@ -54,15 +54,14 @@ function PrintPage({ preset }: PrintPageProps): JSX.Element {
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null)
   const [quantity, setQuantity] = useState<number>(1)
   const [unit, setUnit] = useState<string>('只')
-  const [printCount, setPrintCount] = useState<number>(1)
   const [templateType, setTemplateType] = useState<TemplateType>('small')
   const [orderNo, setOrderNo] = useState<string>('')
   const [projectName, setProjectName] = useState<string>('')
   const [productCode, setProductCode] = useState<string>('')
   const [orderNoFontSize, setOrderNoFontSize] = useState<LabelExtraFontSize>('medium')
   const [projectNameFontSize, setProjectNameFontSize] = useState<LabelExtraFontSize>('medium')
-  const [labelDescFontSize, setLabelDescFontSize] = useState<LabelExtraFontSize>('medium')
-  const [skipInventory, setSkipInventory] = useState(false)
+  const [labelDescFontSize, setLabelDescFontSize] = useState<LabelExtraFontSize>('mini')
+  const [skipInventory, setSkipInventory] = useState(true)
   const [loading, setLoading] = useState(false)
   const [printing, setPrinting] = useState(false)
   const [combinedItems, setCombinedItems] = useState<CombinedLabelItem[] | null>(null)
@@ -142,12 +141,17 @@ function PrintPage({ preset }: PrintPageProps): JSX.Element {
     }
   }, [selectedProduct])
 
+  // 标签模板切换时，描述字号自动跳转到对应默认值
+  useEffect(() => {
+    setLabelDescFontSize(templateType === 'small' ? 'mini' : 'medium')
+  }, [templateType])
+
   const handlePrint = useCallback(async () => {
     if (!selectedProduct) {
       message.warning('请先选择要打印的物品')
       return
     }
-    if (quantity < 1 || printCount < 1) {
+    if (quantity < 1) {
       message.warning('请输入有效的数量')
       return
     }
@@ -156,7 +160,7 @@ function PrintPage({ preset }: PrintPageProps): JSX.Element {
       const deductResult = await api.printAndDeduct(
         selectedProduct.id,
         quantity,
-        printCount,
+        1,
         templateType,
         skipInventory
       )
@@ -169,7 +173,7 @@ function PrintPage({ preset }: PrintPageProps): JSX.Element {
       } else {
         window.print()
       }
-      const totalPieces = quantity * printCount
+      const totalPieces = quantity
       const deductThousands = totalPieces / 1000
       message.success(
         skipInventory
@@ -181,7 +185,7 @@ function PrintPage({ preset }: PrintPageProps): JSX.Element {
     } finally {
       setPrinting(false)
     }
-  }, [selectedProduct, quantity, printCount, templateType, skipInventory])
+  }, [selectedProduct, quantity, templateType, skipInventory])
 
   const fetchProjectNameByOrderNo = useCallback(
     async (value: string) => {
@@ -220,22 +224,22 @@ function PrintPage({ preset }: PrintPageProps): JSX.Element {
   )
 
   const columns = [
-    { title: '物料号', dataIndex: 'code', key: 'code', width: 120 },
+    { title: '物料编码', dataIndex: 'code', key: 'code', width: 140 },
     { title: '物料描述', dataIndex: 'description', key: 'description', width: 140 },
-    { title: '物品名称', dataIndex: 'name', key: 'name', width: 140 },
-    { title: '规格', dataIndex: 'spec', key: 'spec', width: 120 },
-    { title: '等级', dataIndex: 'grade', key: 'grade', width: 70 },
-    { title: '表面处理', dataIndex: 'surface_treatment', key: 'surface_treatment', width: 100 },
     {
       title: '操作',
       key: 'action',
-      width: 80,
+      width: 100,
       render: (_: unknown, record: Product) => (
         <Button
-          type="link"
+          type={selectedProduct?.id === record.id ? 'primary' : 'default'}
           size="small"
           onClick={() => setSelectedProduct(record)}
-          style={selectedProduct?.id === record.id ? { fontWeight: 'bold' } : {}}
+          style={
+            selectedProduct?.id === record.id
+              ? { fontWeight: 600 }
+              : { background: '#f5f5f5' }
+          }
         >
           {selectedProduct?.id === record.id ? '已选中' : '选择'}
         </Button>
@@ -356,18 +360,6 @@ function PrintPage({ preset }: PrintPageProps): JSX.Element {
                 <span style={{ marginLeft: 6, color: '#999', fontSize: 12 }}>（显示在标签上）</span>
               </div>
               <div>
-                <span style={{ marginRight: 8, fontWeight: 500 }}>打印张数：</span>
-                <InputNumber
-                  min={1}
-                  max={999}
-                  value={printCount}
-                  onChange={(v) => setPrintCount(v || 1)}
-                  style={{ width: 120 }}
-                  placeholder="打印几张标签"
-                />
-                <span style={{ marginLeft: 6, color: '#999', fontSize: 12 }}>（打印几张标签）</span>
-              </div>
-              <div>
                 <span style={{ marginRight: 8, fontWeight: 500 }}>标签模板：</span>
                 <Radio.Group
                   value={templateType}
@@ -443,6 +435,7 @@ function PrintPage({ preset }: PrintPageProps): JSX.Element {
                       onChange={setLabelDescFontSize}
                       style={{ width: 180 }}
                       options={[
+                        { value: 'mini', label: '迷你（8pt）' },
                         { value: 'small', label: '小（10pt）' },
                         { value: 'medium', label: '中（12pt）' },
                         { value: 'large', label: '大（14pt）' }
@@ -462,11 +455,7 @@ function PrintPage({ preset }: PrintPageProps): JSX.Element {
                   不计入库存（勾选后打印不扣减库存）
                 </Checkbox>
               </div>
-              {!skipInventory && (
-                <div style={{ color: '#999', fontSize: 12, marginBottom: 8 }}>
-                  库存扣减：{quantity} × {printCount} = {quantity * printCount}只 = {(quantity * printCount) / 1000}千
-                </div>
-              )}
+              {!skipInventory && <div style={{ color: '#999', fontSize: 12, marginBottom: 8 }}>库存扣减：{quantity}只 = {quantity / 1000}千</div>}
               <Button
                 type="primary"
                 icon={<PrinterOutlined />}
@@ -476,8 +465,8 @@ function PrintPage({ preset }: PrintPageProps): JSX.Element {
                 block
               >
                 {skipInventory
-                  ? `打印标签 (${printCount} 张，不扣减库存)`
-                  : `打印标签 (${printCount} 张) 并扣减库存 ${(quantity * printCount) / 1000}千`}
+                  ? '打印标签（不扣减库存）'
+                  : `打印标签并扣减库存 ${quantity / 1000}千`}
               </Button>
             </Space>
           </Card>
@@ -485,35 +474,31 @@ function PrintPage({ preset }: PrintPageProps): JSX.Element {
           <Card size="small" title="打印预览" style={{ flex: 1, overflow: 'auto' }}>
             <div className="print-area">
               <div className="label-preview-container">
-                {Array.from({ length: printCount }, (_, i) => (
-                  <div
-                    key={i}
-                    className={`label-preview-item ${i < printCount - 1 ? 'label-page-break' : ''}`}
-                  >
-                    {templateType === 'small' ? (
-                      <LabelSmall
-                        product={selectedProduct}
-                        productCode={productCode}
-                        quantity={quantity}
-                        unit={unit}
-                      />
-                    ) : (
-                      <LabelLarge
-                        product={selectedProduct}
-                        productCode={productCode}
-                        quantity={combinedItems ? undefined : quantity}
-                        unit={combinedItems ? undefined : unit}
-                        orderNo={orderNo}
-                        projectName={projectName}
-                        orderNoFontSizePt={LABEL_FONT_SIZE_MAP[orderNoFontSize]}
-                        projectNameFontSizePt={LABEL_FONT_SIZE_MAP[projectNameFontSize]}
-                        descFontSizePt={LABEL_FONT_SIZE_MAP[labelDescFontSize]}
-                        combinedItems={combinedItems || undefined}
-                        boxNo={combinedItems ? boxNo : undefined}
-                      />
-                    )}
-                  </div>
-                ))}
+                <div key="single-label" className="label-preview-item">
+                  {templateType === 'small' ? (
+                    <LabelSmall
+                      product={selectedProduct}
+                      productCode={productCode}
+                      quantity={quantity}
+                      unit={unit}
+                      descFontSizePt={LABEL_FONT_SIZE_MAP[labelDescFontSize]}
+                    />
+                  ) : (
+                    <LabelLarge
+                      product={selectedProduct}
+                      productCode={productCode}
+                      quantity={combinedItems ? undefined : quantity}
+                      unit={combinedItems ? undefined : unit}
+                      orderNo={orderNo}
+                      projectName={projectName}
+                      orderNoFontSizePt={LABEL_FONT_SIZE_MAP[orderNoFontSize]}
+                      projectNameFontSizePt={LABEL_FONT_SIZE_MAP[projectNameFontSize]}
+                      descFontSizePt={LABEL_FONT_SIZE_MAP[labelDescFontSize]}
+                      combinedItems={combinedItems || undefined}
+                      boxNo={combinedItems ? boxNo : undefined}
+                    />
+                  )}
+                </div>
               </div>
             </div>
           </Card>

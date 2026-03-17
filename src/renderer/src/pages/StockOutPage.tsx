@@ -56,9 +56,9 @@ function StockOutPage(): JSX.Element {
       if (filterKeyword.trim()) {
         const kw = filterKeyword.trim().toLowerCase()
         const code = (log.product_code || '').toLowerCase()
-        const name = (log.product_name || '').toLowerCase()
+        const description = (log.product_description || '').toLowerCase()
         const remark = (log.remark || '').toLowerCase()
-        if (!code.includes(kw) && !name.includes(kw) && !remark.includes(kw)) return false
+        if (!code.includes(kw) && !description.includes(kw) && !remark.includes(kw)) return false
       }
       return true
     })
@@ -409,7 +409,7 @@ function StockOutPage(): JSX.Element {
               />
               <span style={{ color: '#666' }}>关键词：</span>
               <Input
-                placeholder="编码/名称/备注"
+                placeholder="编码/物料描述/备注"
                 value={filterKeyword}
                 onChange={(e) => setFilterKeyword(e.target.value)}
                 style={{ width: 160 }}

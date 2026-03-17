@@ -90,8 +90,7 @@
   .print-area .label-large * {
     color: inherit;
   }
-  /* 仅标题"扬州硕瑞机电有限公司"加粗 */
-  .print-area .label-small .label-company,
+  /* 大标签标题加粗，小标签标题按需求不加粗 */
   .print-area .label-large .label-title {
     font-weight: 700 !important;
     -webkit-text-stroke: 0.02em #000;
@@ -99,11 +98,22 @@
     text-rendering: geometricPrecision;
     text-shadow: 0 0 0.3px #000, 0 0 0.3px #000;
   }
-  /* 其余文字不加粗 */
+  /* 小标签正文：明确不加粗，也不做描边/阴影，避免视觉上像粗体 */
   .print-area .label-small .label-row,
   .print-area .label-small .label-field,
   .print-area .label-small .label-date-value,
+  .print-area .label-small .label-company,
+  .print-area .label-small .label-row-desc,
   .print-area .label-small .label-desc-value,
+  .print-area .label-small .label-content {
+    font-weight: 400 !important;
+    -webkit-text-stroke: 0 !important;
+    text-stroke: 0 !important;
+    text-shadow: none !important;
+    text-rendering: auto;
+  }
+
+  /* 其余文字不加粗（大标签保留轻描边增强打印清晰度） */
   .print-area .label-large .label-row,
   .print-area .label-large .label-field,
   .print-area .label-large .label-value,
@@ -160,7 +170,7 @@
   justify-content: center;
   gap: 1mm;
   font-size: 10pt;
-  font-weight: bold;
+  font-weight: 400;
   border-bottom: 0.3mm solid #000;
   padding-bottom: 0.5mm;
   margin-bottom: 0.5mm;
@@ -195,7 +205,9 @@
 }
 
 .label-small .label-row-desc {
-  gap: 0.3mm;
+  display: block;
+  line-height: 1.35;
+  word-break: break-all;
 }
 
 .label-small .label-desc-value {
