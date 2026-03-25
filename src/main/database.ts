@@ -54,6 +54,8 @@ export interface PickingOrderItem {
   pick_remark: string
   picked_at: string | null
   picked_by: string
+  delivery_note_printed: number
+  delivery_note_printed_at: string | null
   created_at: string
   updated_at: string
 }
@@ -63,6 +65,22 @@ export function initDatabase(): void {
   db = new Database(dbPath)
 
   db.pragma('journal_mode = WAL')
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS app_meta (
+      key TEXT PRIMARY KEY,
+      value TEXT
+    );
+  `)
+
+  const getMeta = (key: string): string | null => {
+    const row = db.prepare('SELECT value FROM app_meta WHERE key = ?').get(key) as { value: string } | undefined
+    return row?.value ?? null
+  }
+
+  const setMeta = (key: string, value: string): void => {
+    db.prepare('INSERT OR REPLACE INTO app_meta (key, value) VALUES (?, ?)').run(key, value)
+  }
 
   db.exec(`
     CREATE TABLE IF NOT EXISTS products (
@@ -100,7 +118,7 @@ export function initDatabase(): void {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       product_id INTEGER NOT NULL UNIQUE,
       quantity INTEGER DEFAULT 0,
-      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT DEFAULT (datetime('now', 'localtime')),
       FOREIGN KEY (product_id) REFERENCES products(id)
     );
   `)
@@ -112,13 +130,43 @@ export function initDatabase(): void {
       type TEXT NOT NULL,
       quantity INTEGER NOT NULL,
       remark TEXT DEFAULT '',
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      created_at TEXT DEFAULT (datetime('now', 'localtime')),
       FOREIGN KEY (product_id) REFERENCES products(id)
     );
   `)
 
   addColumnIfMissing('inventory_logs', 'operator_id', 'INTEGER DEFAULT NULL')
   addColumnIfMissing('inventory_logs', 'operator_name', "TEXT DEFAULT ''")
+
+  // 旧版本 inventory_logs.created_at 使用 UTC（CURRENT_TIMESTAMP）。这里做一次性迁移到本地时间，避免前端显示偏差。
+  const MIGRATION_KEY = 'inventory_logs_created_at_localtime_migrated_v1'
+  if (getMeta(MIGRATION_KEY) !== '1') {
+    try {
+      db.prepare(`
+        UPDATE inventory_logs
+        SET created_at = datetime(created_at, 'localtime')
+        WHERE created_at IS NOT NULL
+      `).run()
+      setMeta(MIGRATION_KEY, '1')
+    } catch {
+      // ignore migration errors
+    }
+  }
+
+  // 旧版本 inventory.updated_at 同样为 UTC，一次性迁移为本地时间（与出入库记录一致）
+  const INV_UPDATED_MIGRATION_KEY = 'inventory_updated_at_localtime_migrated_v1'
+  if (getMeta(INV_UPDATED_MIGRATION_KEY) !== '1') {
+    try {
+      db.prepare(`
+        UPDATE inventory
+        SET updated_at = datetime(updated_at, 'localtime')
+        WHERE updated_at IS NOT NULL
+      `).run()
+      setMeta(INV_UPDATED_MIGRATION_KEY, '1')
+    } catch {
+      // ignore migration errors
+    }
+  }
 
   db.exec(`
     CREATE TABLE IF NOT EXISTS users (
@@ -160,12 +208,16 @@ export function initDatabase(): void {
       pick_remark TEXT DEFAULT '',
       picked_at TEXT,
       picked_by TEXT DEFAULT '',
+      delivery_note_printed INTEGER DEFAULT 0,
+      delivery_note_printed_at TEXT,
       created_at TEXT DEFAULT (datetime('now', 'localtime')),
       updated_at TEXT DEFAULT (datetime('now', 'localtime')),
       UNIQUE(order_no, seq_no)
     );
     CREATE INDEX IF NOT EXISTS idx_picking_order_no ON picking_order_items(order_no);
   `)
+  addColumnIfMissing('picking_order_items', 'delivery_note_printed', 'INTEGER DEFAULT 0')
+  addColumnIfMissing('picking_order_items', 'delivery_note_printed_at', 'TEXT')
 
   // 拆分出库明细（按配货行保存子件及数量，供历史查询与还原）
   db.exec(`
@@ -411,7 +463,9 @@ export interface InventoryWithProduct {
 export function getInventory(productId: number): number {
   const stmt = db.prepare('SELECT quantity FROM inventory WHERE product_id = ?')
   const row = stmt.get(productId) as { quantity: number } | undefined
-  return row ? row.quantity : 0
+  if (!row) return 0
+  // better-sqlite3 可能返回 BigInt，与 number 运算会抛错，统一为 number
+  return Number(row.quantity)
 }
 
 export function getAllInventory(): InventoryWithProduct[] {
@@ -440,10 +494,10 @@ export function setInventory(
     const existing = db.prepare('SELECT id FROM inventory WHERE product_id = ?').get(productId)
     if (existing) {
       db.prepare(
-        'UPDATE inventory SET quantity = ?, updated_at = CURRENT_TIMESTAMP WHERE product_id = ?'
+        `UPDATE inventory SET quantity = ?, updated_at = datetime('now', 'localtime') WHERE product_id = ?`
       ).run(newQuantity, productId)
     } else {
-      db.prepare('INSERT INTO inventory (product_id, quantity) VALUES (?, ?)').run(
+      db.prepare(`INSERT INTO inventory (product_id, quantity, updated_at) VALUES (?, ?, datetime('now', 'localtime'))`).run(
         productId,
         newQuantity
       )
@@ -453,7 +507,8 @@ export function setInventory(
       const type = diff > 0 ? 'in' : 'out'
       const logRemark = `[手动调整] ${remark || ''}`.trim()
       db.prepare(
-        'INSERT INTO inventory_logs (product_id, type, quantity, remark, operator_id, operator_name) VALUES (?, ?, ?, ?, ?, ?)'
+        `INSERT INTO inventory_logs (product_id, type, quantity, remark, operator_id, operator_name, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, datetime('now', 'localtime'))`
       ).run(productId, type, Math.abs(diff), logRemark, operatorId ?? null, operatorName ?? '')
     }
   })
@@ -471,16 +526,17 @@ export function stockIn(
     const existing = db.prepare('SELECT id FROM inventory WHERE product_id = ?').get(productId)
     if (existing) {
       db.prepare(
-        'UPDATE inventory SET quantity = quantity + ?, updated_at = CURRENT_TIMESTAMP WHERE product_id = ?'
+        `UPDATE inventory SET quantity = quantity + ?, updated_at = datetime('now', 'localtime') WHERE product_id = ?`
       ).run(quantity, productId)
     } else {
-      db.prepare('INSERT INTO inventory (product_id, quantity) VALUES (?, ?)').run(
+      db.prepare(`INSERT INTO inventory (product_id, quantity, updated_at) VALUES (?, ?, datetime('now', 'localtime'))`).run(
         productId,
         quantity
       )
     }
     db.prepare(
-      'INSERT INTO inventory_logs (product_id, type, quantity, remark, operator_id, operator_name) VALUES (?, ?, ?, ?, ?, ?)'
+      `INSERT INTO inventory_logs (product_id, type, quantity, remark, operator_id, operator_name, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, datetime('now', 'localtime'))`
     ).run(productId, 'in', quantity, remark || '', operatorId ?? null, operatorName ?? '')
   })
   txn()
@@ -497,16 +553,17 @@ export function stockOut(
     const existing = db.prepare('SELECT id FROM inventory WHERE product_id = ?').get(productId)
     if (existing) {
       db.prepare(
-        'UPDATE inventory SET quantity = quantity - ?, updated_at = CURRENT_TIMESTAMP WHERE product_id = ?'
+        `UPDATE inventory SET quantity = quantity - ?, updated_at = datetime('now', 'localtime') WHERE product_id = ?`
       ).run(quantity, productId)
     } else {
-      db.prepare('INSERT INTO inventory (product_id, quantity) VALUES (?, ?)').run(
+      db.prepare(`INSERT INTO inventory (product_id, quantity, updated_at) VALUES (?, ?, datetime('now', 'localtime'))`).run(
         productId,
         -quantity
       )
     }
     db.prepare(
-      'INSERT INTO inventory_logs (product_id, type, quantity, remark, operator_id, operator_name) VALUES (?, ?, ?, ?, ?, ?)'
+      `INSERT INTO inventory_logs (product_id, type, quantity, remark, operator_id, operator_name, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, datetime('now', 'localtime'))`
     ).run(productId, 'out', quantity, remark || '', operatorId ?? null, operatorName ?? '')
   })
   txn()
@@ -523,12 +580,13 @@ export function importInventory(
 
   const findProduct = db.prepare('SELECT id FROM products WHERE code = ?')
   const findInventory = db.prepare('SELECT id FROM inventory WHERE product_id = ?')
-  const insertInventory = db.prepare('INSERT INTO inventory (product_id, quantity) VALUES (?, ?)')
+  const insertInventory = db.prepare(`INSERT INTO inventory (product_id, quantity, updated_at) VALUES (?, ?, datetime('now', 'localtime'))`)
   const updateInventory = db.prepare(
-    'UPDATE inventory SET quantity = ?, updated_at = CURRENT_TIMESTAMP WHERE product_id = ?'
+    `UPDATE inventory SET quantity = ?, updated_at = datetime('now', 'localtime') WHERE product_id = ?`
   )
   const insertLog = db.prepare(
-    'INSERT INTO inventory_logs (product_id, type, quantity, remark, operator_id, operator_name) VALUES (?, ?, ?, ?, ?, ?)'
+    `INSERT INTO inventory_logs (product_id, type, quantity, remark, operator_id, operator_name, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, datetime('now', 'localtime'))`
   )
 
   const txn = db.transaction(() => {
@@ -585,6 +643,47 @@ export function deleteInventoryLogs(ids: number[]): number {
   const stmt = db.prepare(`DELETE FROM inventory_logs WHERE id IN (${placeholders})`)
   const result = stmt.run(...ids)
   return result.changes
+}
+
+/**
+ * 修改入库明细的数量与备注，并同步调整当前库存（差额 = 新数量 - 原数量）
+ */
+export function updateInventoryInLog(logId: number, newQuantity: number, newRemark: string): void {
+  const nq = Number(newQuantity)
+  if (!Number.isFinite(nq) || nq <= 0) {
+    throw new Error('数量无效')
+  }
+  const txn = db.transaction(() => {
+    const log = db.prepare('SELECT * FROM inventory_logs WHERE id = ?').get(logId) as InventoryLog | undefined
+    if (!log) throw new Error('记录不存在')
+    if (log.type !== 'in') throw new Error('只能修改入库记录')
+
+    const oldQty = Number(log.quantity)
+    if (!Number.isFinite(oldQty)) {
+      throw new Error('记录数据异常')
+    }
+    const delta = nq - oldQty
+    if (delta !== 0) {
+      // 与出库/打印一致：允许负库存，不校验 currentInv + delta
+      const existing = db.prepare('SELECT id FROM inventory WHERE product_id = ?').get(log.product_id)
+      if (existing) {
+        db.prepare(
+          `UPDATE inventory SET quantity = quantity + ?, updated_at = datetime('now', 'localtime') WHERE product_id = ?`
+        ).run(delta, log.product_id)
+      } else {
+        db.prepare(`INSERT INTO inventory (product_id, quantity, updated_at) VALUES (?, ?, datetime('now', 'localtime'))`).run(
+          log.product_id,
+          delta
+        )
+      }
+    }
+    db.prepare('UPDATE inventory_logs SET quantity = ?, remark = ? WHERE id = ?').run(
+      nq,
+      newRemark || '',
+      logId
+    )
+  })
+  txn()
 }
 
 /**
@@ -648,20 +747,20 @@ export function revokeInventoryLog(
     if (log.type === 'in') {
       if (existing) {
         db.prepare(
-          'UPDATE inventory SET quantity = quantity - ?, updated_at = CURRENT_TIMESTAMP WHERE product_id = ?'
+          `UPDATE inventory SET quantity = quantity - ?, updated_at = datetime('now', 'localtime') WHERE product_id = ?`
         ).run(log.quantity, log.product_id)
       } else {
-        db.prepare('INSERT INTO inventory (product_id, quantity) VALUES (?, ?)').run(
+        db.prepare(`INSERT INTO inventory (product_id, quantity, updated_at) VALUES (?, ?, datetime('now', 'localtime'))`).run(
           log.product_id, -log.quantity
         )
       }
     } else {
       if (existing) {
         db.prepare(
-          'UPDATE inventory SET quantity = quantity + ?, updated_at = CURRENT_TIMESTAMP WHERE product_id = ?'
+          `UPDATE inventory SET quantity = quantity + ?, updated_at = datetime('now', 'localtime') WHERE product_id = ?`
         ).run(log.quantity, log.product_id)
       } else {
-        db.prepare('INSERT INTO inventory (product_id, quantity) VALUES (?, ?)').run(
+        db.prepare(`INSERT INTO inventory (product_id, quantity, updated_at) VALUES (?, ?, datetime('now', 'localtime'))`).run(
           log.product_id, log.quantity
         )
       }
@@ -730,12 +829,13 @@ export function batchStockIn(
 
   const findProduct = db.prepare('SELECT id FROM products WHERE code = ?')
   const findInventory = db.prepare('SELECT id FROM inventory WHERE product_id = ?')
-  const insertInventory = db.prepare('INSERT INTO inventory (product_id, quantity) VALUES (?, ?)')
+  const insertInventory = db.prepare(`INSERT INTO inventory (product_id, quantity, updated_at) VALUES (?, ?, datetime('now', 'localtime'))`)
   const addInventory = db.prepare(
-    'UPDATE inventory SET quantity = quantity + ?, updated_at = CURRENT_TIMESTAMP WHERE product_id = ?'
+    `UPDATE inventory SET quantity = quantity + ?, updated_at = datetime('now', 'localtime') WHERE product_id = ?`
   )
   const insertLog = db.prepare(
-    'INSERT INTO inventory_logs (product_id, type, quantity, remark, operator_id, operator_name) VALUES (?, ?, ?, ?, ?, ?)'
+    `INSERT INTO inventory_logs (product_id, type, quantity, remark, operator_id, operator_name, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, datetime('now', 'localtime'))`
   )
 
   const txn = db.transaction(() => {
@@ -776,12 +876,13 @@ export function batchStockOut(
 
   const findProduct = db.prepare('SELECT id FROM products WHERE code = ?')
   const findInventory = db.prepare('SELECT id FROM inventory WHERE product_id = ?')
-  const insertInventory = db.prepare('INSERT INTO inventory (product_id, quantity) VALUES (?, ?)')
+  const insertInventory = db.prepare(`INSERT INTO inventory (product_id, quantity, updated_at) VALUES (?, ?, datetime('now', 'localtime'))`)
   const subInventory = db.prepare(
-    'UPDATE inventory SET quantity = quantity - ?, updated_at = CURRENT_TIMESTAMP WHERE product_id = ?'
+    `UPDATE inventory SET quantity = quantity - ?, updated_at = datetime('now', 'localtime') WHERE product_id = ?`
   )
   const insertLog = db.prepare(
-    'INSERT INTO inventory_logs (product_id, type, quantity, remark, operator_id, operator_name) VALUES (?, ?, ?, ?, ?, ?)'
+    `INSERT INTO inventory_logs (product_id, type, quantity, remark, operator_id, operator_name, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, datetime('now', 'localtime'))`
   )
 
   const txn = db.transaction(() => {
@@ -855,17 +956,18 @@ export function printAndDeductInventory(
       const existing = db.prepare('SELECT id FROM inventory WHERE product_id = ?').get(productId)
       if (existing) {
         db.prepare(
-          'UPDATE inventory SET quantity = quantity - ?, updated_at = CURRENT_TIMESTAMP WHERE product_id = ?'
+          `UPDATE inventory SET quantity = quantity - ?, updated_at = datetime('now', 'localtime') WHERE product_id = ?`
         ).run(totalDeductInThousands, productId)
       } else {
-        db.prepare('INSERT INTO inventory (product_id, quantity) VALUES (?, ?)').run(
+        db.prepare(`INSERT INTO inventory (product_id, quantity, updated_at) VALUES (?, ?, datetime('now', 'localtime'))`).run(
           productId,
           -totalDeductInThousands
         )
       }
 
       db.prepare(
-        'INSERT INTO inventory_logs (product_id, type, quantity, remark, operator_id, operator_name) VALUES (?, ?, ?, ?, ?, ?)'
+        `INSERT INTO inventory_logs (product_id, type, quantity, remark, operator_id, operator_name, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, datetime('now', 'localtime'))`
       ).run(
         productId,
         'out',
@@ -1066,6 +1168,19 @@ export function getPickingOrderItemsByOrderNos(orderNos: string[]): PickingOrder
   ).all(...orderNos) as PickingOrderItem[]
 }
 
+export function markDeliveryNotePrinted(ids: number[]): number {
+  if (ids.length === 0) return 0
+  const placeholders = ids.map(() => '?').join(',')
+  const result = db.prepare(
+    `UPDATE picking_order_items
+     SET delivery_note_printed = 1,
+         delivery_note_printed_at = datetime('now', 'localtime'),
+         updated_at = datetime('now', 'localtime')
+     WHERE id IN (${placeholders})`
+  ).run(...ids)
+  return result.changes
+}
+
 export function batchDeletePickingOrdersByOrderNos(orderNos: string[]): number {
   if (orderNos.length === 0) return 0
   const placeholders = orderNos.map(() => '?').join(',')
@@ -1194,12 +1309,13 @@ export function confirmPickingItems(
   const getItem = db.prepare('SELECT * FROM picking_order_items WHERE id = ?')
   const findProduct = db.prepare('SELECT id FROM products WHERE code = ?')
   const findInventory = db.prepare('SELECT id FROM inventory WHERE product_id = ?')
-  const insertInventory = db.prepare('INSERT INTO inventory (product_id, quantity) VALUES (?, ?)')
+  const insertInventory = db.prepare(`INSERT INTO inventory (product_id, quantity, updated_at) VALUES (?, ?, datetime('now', 'localtime'))`)
   const subInventory = db.prepare(
-    'UPDATE inventory SET quantity = quantity - ?, updated_at = CURRENT_TIMESTAMP WHERE product_id = ?'
+    `UPDATE inventory SET quantity = quantity - ?, updated_at = datetime('now', 'localtime') WHERE product_id = ?`
   )
   const insertLog = db.prepare(
-    'INSERT INTO inventory_logs (product_id, type, quantity, remark, operator_id, operator_name) VALUES (?, ?, ?, ?, ?, ?)'
+    `INSERT INTO inventory_logs (product_id, type, quantity, remark, operator_id, operator_name, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, datetime('now', 'localtime'))`
   )
   const markPicked = db.prepare(`
     UPDATE picking_order_items
@@ -1370,9 +1486,9 @@ export function resetPickingItems(
   const deleteLogById = db.prepare('DELETE FROM inventory_logs WHERE id = ?')
   const findProduct = db.prepare('SELECT id FROM products WHERE code = ?')
   const findInventory = db.prepare('SELECT id FROM inventory WHERE product_id = ?')
-  const insertInventory = db.prepare('INSERT INTO inventory (product_id, quantity) VALUES (?, ?)')
+  const insertInventory = db.prepare(`INSERT INTO inventory (product_id, quantity, updated_at) VALUES (?, ?, datetime('now', 'localtime'))`)
   const addInventory = db.prepare(
-    'UPDATE inventory SET quantity = quantity + ?, updated_at = CURRENT_TIMESTAMP WHERE product_id = ?'
+    `UPDATE inventory SET quantity = quantity + ?, updated_at = datetime('now', 'localtime') WHERE product_id = ?`
   )
   const deleteSplits = db.prepare('DELETE FROM picking_order_splits WHERE picking_item_id = ?')
   const resetItem = db.prepare(`

@@ -70,6 +70,13 @@
     border: none !important;
   }
 
+  /* 预览放大仅用于屏幕，打印时还原小标签真实尺寸 */
+  .print-area .label-preview-container .label-small {
+    width: 60mm !important;
+    height: 40mm !important;
+    transform: none !important;
+  }
+
   /* 绑定命名页面，让浏览器自动匹配纸张尺寸 */
   .print-area .label-small {
     page: small-label;
@@ -410,4 +417,16 @@
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
   border-radius: 4px;
   overflow: hidden;
+}
+
+/* 小标签预览等比例放大（包含字体等内容同比放大） */
+.label-preview-container .label-small {
+  transform: scale(1.5);
+  transform-origin: top left;
+}
+
+/* 为放大后的内容预留占位尺寸，避免被裁剪 */
+.label-preview-container .label-preview-item:has(.label-small) {
+  width: 90mm;
+  height: 60mm;
 }

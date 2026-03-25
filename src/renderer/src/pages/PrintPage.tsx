@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback, useEffect } from 'react'
+import { useState, useRef, useCallback, useEffect, type ReactElement } from 'react'
 import {
   Input,
   Button,
@@ -16,7 +16,6 @@ import {
 import { SearchOutlined, PrinterOutlined } from '@ant-design/icons'
 import ResizableTable from '../components/ResizableTable'
 import { api, type Product } from '../utils/api'
-import { useAuth } from '../contexts/AuthContext'
 import LabelSmall from '../components/LabelSmall'
 import LabelLarge, { type CombinedLabelItem } from '../components/LabelLarge'
 import '../styles/label-print.css'
@@ -47,8 +46,7 @@ interface PrintPageProps {
   preset?: PrintPagePreset | null
 }
 
-function PrintPage({ preset }: PrintPageProps): JSX.Element {
-  const { user } = useAuth()
+function PrintPage({ preset }: PrintPageProps): ReactElement {
   const [searchText, setSearchText] = useState('')
   const [searchResults, setSearchResults] = useState<Product[]>([])
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null)
@@ -67,6 +65,10 @@ function PrintPage({ preset }: PrintPageProps): JSX.Element {
   const [combinedItems, setCombinedItems] = useState<CombinedLabelItem[] | null>(null)
   const [boxNo, setBoxNo] = useState<number | undefined>(undefined)
   const searchInputRef = useRef<any>(null)
+  const searchTextRef = useRef('')
+  const scanRapidKeyCountRef = useRef(0)
+  const scanLastKeyTsRef = useRef(0)
+  const scanSearchTimerRef = useRef<number | null>(null)
 
   const handleSearch = useCallback(async (value: string) => {
     if (!value.trim()) {
@@ -91,6 +93,58 @@ function PrintPage({ preset }: PrintPageProps): JSX.Element {
       setLoading(false)
     }
   }, [])
+
+  useEffect(() => {
+    searchTextRef.current = searchText
+  }, [searchText])
+
+  useEffect(() => {
+    return () => {
+      if (scanSearchTimerRef.current !== null) {
+        window.clearTimeout(scanSearchTimerRef.current)
+      }
+    }
+  }, [])
+
+  const scheduleScannerAutoSearch = useCallback(() => {
+    if (scanSearchTimerRef.current !== null) {
+      window.clearTimeout(scanSearchTimerRef.current)
+    }
+    scanSearchTimerRef.current = window.setTimeout(() => {
+      const currentValue = searchTextRef.current.trim()
+      if (currentValue) {
+        void handleSearch(currentValue).finally(() => {
+          // 自动搜索后全选，下一次扫码可直接覆盖，不需要手动删除旧条码
+          searchInputRef.current?.focus?.({ cursor: 'all' })
+        })
+      }
+      scanRapidKeyCountRef.current = 0
+    }, 120)
+  }, [handleSearch])
+
+  const handleSearchInputKeyDown = useCallback(
+    (e: React.KeyboardEvent<HTMLInputElement>) => {
+      if (e.key === 'Enter') {
+        scanRapidKeyCountRef.current = 0
+        return
+      }
+
+      if (e.ctrlKey || e.altKey || e.metaKey || e.key.length !== 1) {
+        return
+      }
+
+      const now = Date.now()
+      const elapsed = now - scanLastKeyTsRef.current
+      scanRapidKeyCountRef.current = elapsed <= 50 ? scanRapidKeyCountRef.current + 1 : 1
+      scanLastKeyTsRef.current = now
+
+      // 扫码枪输入通常是连续快速击键，达到阈值后自动触发一次搜索
+      if (scanRapidKeyCountRef.current >= 4) {
+        scheduleScannerAutoSearch()
+      }
+    },
+    [scheduleScannerAutoSearch]
+  )
 
   useEffect(() => {
     if (!preset) return
@@ -256,7 +310,12 @@ function PrintPage({ preset }: PrintPageProps): JSX.Element {
             placeholder="多条件搜索，用空格分隔，如：5783 10*20"
             value={searchText}
             onChange={(e) => setSearchText(e.target.value)}
-            onPressEnter={(e) => handleSearch((e.target as HTMLInputElement).value)}
+            onKeyDown={handleSearchInputKeyDown}
+            onPressEnter={(e) =>
+              void handleSearch((e.target as HTMLInputElement).value).finally(() => {
+                searchInputRef.current?.focus?.({ cursor: 'all' })
+              })
+            }
             prefix={<SearchOutlined />}
             allowClear
             size="large"

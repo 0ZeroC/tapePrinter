@@ -13,7 +13,7 @@ import {
   Select,
   Dropdown
 } from 'antd'
-import { SearchOutlined, ImportOutlined, FilterOutlined, DownloadOutlined, DeleteOutlined, DownOutlined, UploadOutlined, UndoOutlined } from '@ant-design/icons'
+import { SearchOutlined, ImportOutlined, FilterOutlined, DownloadOutlined, DeleteOutlined, DownOutlined, UploadOutlined, UndoOutlined, EditOutlined } from '@ant-design/icons'
 import * as XLSX from 'xlsx'
 import ResizableTable from '../components/ResizableTable'
 import { api, type Product, type InventoryLog } from '../utils/api'
@@ -42,6 +42,13 @@ function StockInPage(): JSX.Element {
   const [currentPage, setCurrentPage] = useState(1)
   const [deleting, setDeleting] = useState(false)
   const [importVisible, setImportVisible] = useState(false)
+  const [editModalOpen, setEditModalOpen] = useState(false)
+  const [editingLog, setEditingLog] = useState<InventoryLog | null>(null)
+  const [editDisplayProduct, setEditDisplayProduct] = useState<Product | null>(null)
+  const [editQuantity, setEditQuantity] = useState(1)
+  const [editRemark, setEditRemark] = useState('')
+  const [editCurrentStock, setEditCurrentStock] = useState<number | null>(null)
+  const [editSubmitting, setEditSubmitting] = useState(false)
   const pageSize = 20
 
   const isAdmin = user?.role === 'admin'
@@ -178,10 +185,67 @@ function StockInPage(): JSX.Element {
     ws['!cols'] = colWidths
     const wb = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(wb, ws, '入库明细')
-    const dateStr = new Date().toISOString().slice(0, 10)
+    const now = new Date()
+    const dateStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
     XLSX.writeFile(wb, `入库明细_${dateStr}.xlsx`)
     message.success('导出成功')
   }, [filteredLogs])
+
+  const openEditModal = useCallback(
+    async (log: InventoryLog) => {
+      setEditingLog(log)
+      setEditQuantity(log.quantity)
+      setEditRemark(log.remark || '')
+      setEditDisplayProduct(null)
+      setEditCurrentStock(null)
+      setEditModalOpen(true)
+      if (log.product_id && log.product_code) {
+        try {
+          const result = await api.searchProducts(log.product_code)
+          if (result.success && result.data) {
+            const p = result.data.find((x) => x.id === log.product_id)
+            if (p) setEditDisplayProduct(p)
+          }
+        } catch {
+          // ignore
+        }
+      }
+      if (canViewInventory && log.product_id) {
+        try {
+          const inv = await api.getInventory(log.product_id)
+          if (inv.success) setEditCurrentStock(inv.data ?? 0)
+        } catch {
+          setEditCurrentStock(null)
+        }
+      }
+    },
+    [canViewInventory]
+  )
+
+  const handleEditSave = useCallback(async () => {
+    if (!editingLog) return
+    const qty = Number(editQuantity)
+    if (!Number.isFinite(qty) || qty <= 0) {
+      message.warning('请输入有效的数量')
+      return
+    }
+    setEditSubmitting(true)
+    try {
+      const result = await api.updateInventoryInLog(editingLog.id, qty, editRemark)
+      if (result.success) {
+        message.success('修改成功')
+        setEditModalOpen(false)
+        setEditingLog(null)
+        loadLogs()
+      } else {
+        message.error(result.error || '修改失败')
+      }
+    } catch {
+      message.error('修改出错')
+    } finally {
+      setEditSubmitting(false)
+    }
+  }, [editingLog, editQuantity, editRemark, loadLogs])
 
   const handleRevoke = useCallback((record: InventoryLog) => {
     Modal.confirm({
@@ -299,11 +363,16 @@ function StockInPage(): JSX.Element {
     ...(canViewInventory ? [{
       title: '操作',
       key: 'action',
-      width: 70,
+      width: 140,
       render: (_: unknown, record: InventoryLog) => (
-        <Button type="link" size="small" danger icon={<UndoOutlined />} onClick={() => handleRevoke(record)}>
-          撤销
-        </Button>
+        <Space size="small" wrap>
+          <Button type="link" size="small" icon={<EditOutlined />} onClick={() => openEditModal(record)}>
+            修改
+          </Button>
+          <Button type="link" size="small" danger icon={<UndoOutlined />} onClick={() => handleRevoke(record)}>
+            撤销
+          </Button>
+        </Space>
       )
     }] : [])
   ]
@@ -518,6 +587,11 @@ function StockInPage(): JSX.Element {
                   <Tag color="blue">{currentStock}千</Tag>
                 </Descriptions.Item>
               )}
+              <Descriptions.Item label="物料描述" span={2}>
+                <span style={{ whiteSpace: 'normal', wordBreak: 'break-all' }}>
+                  {selectedProduct.description || '-'}
+                </span>
+              </Descriptions.Item>
             </Descriptions>
             <div style={{ marginBottom: 16 }}>
               <div style={{ marginBottom: 8, fontWeight: 500 }}>入库数量（千）：</div>
@@ -551,6 +625,81 @@ function StockInPage(): JSX.Element {
               loading={submitting}
             >
               确认入库
+            </Button>
+          </div>
+        )}
+      </Modal>
+
+      <Modal
+        title="修改入库记录"
+        open={editModalOpen}
+        onCancel={() => {
+          setEditModalOpen(false)
+          setEditingLog(null)
+        }}
+        footer={null}
+        width={520}
+        destroyOnClose
+      >
+        {editingLog && (
+          <div>
+            <Descriptions column={2} size="small" bordered style={{ marginBottom: 16 }}>
+              <Descriptions.Item label="物料号">
+                {editDisplayProduct?.code ?? editingLog.product_code}
+              </Descriptions.Item>
+              <Descriptions.Item label="物品名称">
+                {editDisplayProduct?.name ?? editingLog.product_name}
+              </Descriptions.Item>
+              <Descriptions.Item label="规格">
+                {(editDisplayProduct?.spec || editingLog.product_spec) || '-'}
+              </Descriptions.Item>
+              <Descriptions.Item label="等级">{editDisplayProduct?.grade || '-'}</Descriptions.Item>
+              <Descriptions.Item label="表面处理">
+                {editDisplayProduct?.surface_treatment || '-'}
+              </Descriptions.Item>
+              <Descriptions.Item label="物料描述" span={2}>
+                <span style={{ whiteSpace: 'normal', wordBreak: 'break-all' }}>
+                  {editDisplayProduct?.description ?? editingLog.product_description ?? '-'}
+                </span>
+              </Descriptions.Item>
+              {canViewInventory && editCurrentStock !== null && (
+                <Descriptions.Item label="当前库存">
+                  <Tag color="blue">{editCurrentStock}千</Tag>
+                </Descriptions.Item>
+              )}
+            </Descriptions>
+            <div style={{ marginBottom: 16 }}>
+              <div style={{ marginBottom: 8, fontWeight: 500 }}>入库数量（千）：</div>
+              <InputNumber
+                min={0.001}
+                max={999999}
+                step={1}
+                value={editQuantity}
+                onChange={(v) => setEditQuantity(v || 1)}
+                style={{ width: '100%' }}
+                size="large"
+                autoFocus
+                addonAfter="千"
+              />
+            </div>
+            <div style={{ marginBottom: 16 }}>
+              <div style={{ marginBottom: 8, fontWeight: 500 }}>备注（选填）：</div>
+              <Input.TextArea
+                value={editRemark}
+                onChange={(e) => setEditRemark(e.target.value)}
+                placeholder="输入备注信息..."
+                rows={2}
+              />
+            </div>
+            <Button
+              type="primary"
+              icon={<EditOutlined />}
+              size="large"
+              block
+              onClick={handleEditSave}
+              loading={editSubmitting}
+            >
+              保存修改
             </Button>
           </div>
         )}

@@ -65,6 +65,7 @@ export interface UserInfo {
   role: 'admin' | 'user'
   canViewInventory: boolean
   canManageData: boolean
+  canManagePickingOrders: boolean
 }
 
 export interface UserRecord {
@@ -101,6 +102,8 @@ export interface PickingOrderItem {
   pick_remark: string
   picked_at: string | null
   picked_by: string
+  delivery_note_printed: number
+  delivery_note_printed_at: string | null
   created_at: string
   updated_at: string
 }
@@ -189,11 +192,19 @@ export const api = {
     role: string
     can_view_inventory: boolean
     can_manage_data: boolean
+    can_manage_picking_orders: boolean
   }) => request<UserRecord>('/users', { method: 'POST', body: JSON.stringify(data) }),
 
   updateUser: (
     id: number,
-    data: { display_name?: string; role?: string; can_view_inventory?: boolean; can_manage_data?: boolean; password?: string }
+    data: {
+      display_name?: string
+      role?: string
+      can_view_inventory?: boolean
+      can_manage_data?: boolean
+      can_manage_picking_orders?: boolean
+      password?: string
+    }
   ) => request<UserRecord>(`/users/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
 
   deleteUser: (id: number) => request(`/users/${id}`, { method: 'DELETE' }),
@@ -272,6 +283,12 @@ export const api = {
   revokeInventoryLog: (id: number) =>
     request(`/inventory/logs/${id}/revoke`, { method: 'POST' }),
 
+  updateInventoryInLog: (id: number, quantity: number, remark: string) =>
+    request(`/inventory/logs/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify({ quantity, remark })
+    }),
+
   batchStockIn: (items: { code: string; quantity: number; remark: string }[]) =>
     request<ImportResult>('/inventory/batch-stock-in', {
       method: 'POST',
@@ -317,10 +334,10 @@ export const api = {
   deleteAllPickingOrders: () =>
     request<number>('/picking-orders/all', { method: 'DELETE' }),
 
-  addPickingOrderItem: (item: Omit<PickingOrderItem, 'id' | 'is_picked' | 'picked_quantity' | 'pick_remark' | 'picked_at' | 'picked_by' | 'created_at' | 'updated_at'>) =>
+  addPickingOrderItem: (item: Omit<PickingOrderItem, 'id' | 'is_picked' | 'picked_quantity' | 'pick_remark' | 'picked_at' | 'picked_by' | 'delivery_note_printed' | 'delivery_note_printed_at' | 'created_at' | 'updated_at'>) =>
     request<PickingOrderItem>('/picking-orders', { method: 'POST', body: JSON.stringify(item) }),
 
-  updatePickingOrderItem: (id: number, data: Partial<Omit<PickingOrderItem, 'id' | 'is_picked' | 'picked_quantity' | 'pick_remark' | 'picked_at' | 'picked_by' | 'created_at' | 'updated_at'>>) =>
+  updatePickingOrderItem: (id: number, data: Partial<Omit<PickingOrderItem, 'id' | 'is_picked' | 'picked_quantity' | 'pick_remark' | 'picked_at' | 'picked_by' | 'delivery_note_printed' | 'delivery_note_printed_at' | 'created_at' | 'updated_at'>>) =>
     request<PickingOrderItem>(`/picking-orders/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
 
   deletePickingOrderItem: (id: number) =>
@@ -330,7 +347,7 @@ export const api = {
     request<number>(`/picking-orders/by-order/${encodeURIComponent(orderNo)}`, { method: 'DELETE' }),
 
   importPickingOrderItems: (
-    items: Omit<PickingOrderItem, 'id' | 'is_picked' | 'picked_quantity' | 'pick_remark' | 'picked_at' | 'picked_by' | 'created_at' | 'updated_at'>[],
+    items: Omit<PickingOrderItem, 'id' | 'is_picked' | 'picked_quantity' | 'pick_remark' | 'picked_at' | 'picked_by' | 'delivery_note_printed' | 'delivery_note_printed_at' | 'created_at' | 'updated_at'>[],
     overwriteMode?: boolean
   ) =>
     request<ImportResult>('/picking-orders/import', {
@@ -343,6 +360,9 @@ export const api = {
 
   resetPickingItems: (ids: number[]) =>
     request<number>('/picking-orders/reset-pick', { method: 'POST', body: JSON.stringify({ ids }) }),
+
+  markDeliveryNotePrinted: (ids: number[]) =>
+    request<number>('/picking-orders/mark-delivery-note-printed', { method: 'POST', body: JSON.stringify({ ids }) }),
 
   getPickingOrderSplits: (id: number) =>
     request<PickingSplitRow[]>(`/picking-orders/${id}/splits`),

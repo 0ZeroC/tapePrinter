@@ -17,6 +17,7 @@ import {
   importInventory,
   getInventoryLogs,
   deleteInventoryLogs,
+  updateInventoryInLog,
   revokeInventoryLog,
   batchStockIn,
   batchStockOut,
@@ -40,6 +41,7 @@ import {
   batchDeletePickingOrdersByOrderNos,
   deleteAllPickingOrders,
   importPickingOrderItems,
+  markDeliveryNotePrinted,
   confirmPickingItems,
   resetPickingItems,
   getPickingOrderSplits,
@@ -52,6 +54,7 @@ import {
   inventoryViewMiddleware,
   dataManageMiddleware,
   pickingOrderManageMiddleware,
+  pickingOrderOutboundMiddleware,
   type AuthRequest,
   type JwtPayload
 } from './auth'
@@ -89,7 +92,8 @@ router.post('/auth/login', (req, res) => {
       displayName: user.display_name,
       role: user.role as 'admin' | 'user',
       canViewInventory: user.can_view_inventory === 1 || user.role === 'admin',
-      canManageData: user.can_manage_data === 1 || user.role === 'admin'
+      canManageData: user.can_manage_data === 1 || user.role === 'admin',
+      canManagePickingOrders: user.can_manage_picking_orders === 1 || user.role === 'admin'
     }
     const token = signToken(payload)
     res.json(ok({ token, user: payload }))
@@ -110,7 +114,8 @@ router.get('/auth/me', authMiddleware, (req: AuthRequest, res) => {
     displayName: user.display_name,
     role: user.role as 'admin' | 'user',
     canViewInventory: user.can_view_inventory === 1 || user.role === 'admin',
-    canManageData: user.can_manage_data === 1 || user.role === 'admin'
+    canManageData: user.can_manage_data === 1 || user.role === 'admin',
+    canManagePickingOrders: user.can_manage_picking_orders === 1 || user.role === 'admin'
   }
   res.json(ok(payload))
 })
@@ -151,7 +156,7 @@ router.get('/users', authMiddleware, adminMiddleware, (_req, res) => {
 
 router.post('/users', authMiddleware, adminMiddleware, (req, res) => {
   try {
-    const { username, password, display_name, role, can_view_inventory, can_manage_data } = req.body
+    const { username, password, display_name, role, can_view_inventory, can_manage_data, can_manage_picking_orders } = req.body
     if (!username || !password) {
       res.json(fail('用户名和密码不能为空'))
       return
@@ -162,7 +167,8 @@ router.post('/users', authMiddleware, adminMiddleware, (req, res) => {
       display_name || username,
       role || 'user',
       can_view_inventory ? 1 : 0,
-      can_manage_data ? 1 : 0
+      can_manage_data ? 1 : 0,
+      can_manage_picking_orders ? 1 : 0
     )
     const { password_hash: _, ...safe } = user as any
     res.json(ok(safe))
@@ -179,12 +185,13 @@ router.post('/users', authMiddleware, adminMiddleware, (req, res) => {
 router.put('/users/:id', authMiddleware, adminMiddleware, (req, res) => {
   try {
     const id = parseInt(req.params.id)
-    const { display_name, role, can_view_inventory, can_manage_data, password } = req.body
+    const { display_name, role, can_view_inventory, can_manage_data, can_manage_picking_orders, password } = req.body
     const data: any = {}
     if (display_name !== undefined) data.display_name = display_name
     if (role !== undefined) data.role = role
     if (can_view_inventory !== undefined) data.can_view_inventory = can_view_inventory ? 1 : 0
     if (can_manage_data !== undefined) data.can_manage_data = can_manage_data ? 1 : 0
+    if (can_manage_picking_orders !== undefined) data.can_manage_picking_orders = can_manage_picking_orders ? 1 : 0
     if (password) data.password = password
     const user = updateUser(id, data)
     if (!user) {
@@ -322,6 +329,29 @@ router.post('/inventory/logs/batch-delete', authMiddleware, adminMiddleware, (re
     }
     const count = deleteInventoryLogs(ids)
     res.json(ok(count))
+  } catch (err) {
+    res.json(fail((err as Error).message))
+  }
+})
+
+router.put('/inventory/logs/:id', authMiddleware, inventoryViewMiddleware, (req, res) => {
+  try {
+    const id = Number.parseInt(String(req.params.id), 10)
+    if (!Number.isFinite(id) || id <= 0) {
+      res.json(fail('无效的记录ID'))
+      return
+    }
+    const { quantity, remark } = req.body as { quantity?: unknown; remark?: unknown }
+    const q =
+      typeof quantity === 'number' && Number.isFinite(quantity)
+        ? quantity
+        : Number(quantity)
+    if (!Number.isFinite(q) || q <= 0) {
+      res.json(fail('请输入有效的数量'))
+      return
+    }
+    updateInventoryInLog(id, q, typeof remark === 'string' ? remark : remark != null ? String(remark) : '')
+    res.json(ok())
   } catch (err) {
     res.json(fail((err as Error).message))
   }
@@ -497,6 +527,20 @@ router.get('/picking-orders/export-data', authMiddleware, (req, res) => {
   }
 })
 
+router.post('/picking-orders/mark-delivery-note-printed', authMiddleware, (req, res) => {
+  try {
+    const { ids } = req.body as { ids?: number[] }
+    if (!Array.isArray(ids) || ids.length === 0) {
+      res.json(fail('请选择要标记的记录'))
+      return
+    }
+    const count = markDeliveryNotePrinted(ids.map((id) => Number(id)).filter((id) => Number.isFinite(id)))
+    res.json(ok(count))
+  } catch (err) {
+    res.json(fail((err as Error).message))
+  }
+})
+
 router.post('/picking-orders/batch-delete', authMiddleware, pickingOrderManageMiddleware, (req, res) => {
   try {
     const { orderNos } = req.body
@@ -584,7 +628,7 @@ router.post('/picking-orders/import', authMiddleware, pickingOrderManageMiddlewa
   }
 })
 
-router.post('/picking-orders/confirm-pick', authMiddleware, (req: AuthRequest, res) => {
+router.post('/picking-orders/confirm-pick', authMiddleware, pickingOrderOutboundMiddleware, (req: AuthRequest, res) => {
   try {
     const items = req.body as {
       id: number
@@ -607,7 +651,7 @@ router.post('/picking-orders/confirm-pick', authMiddleware, (req: AuthRequest, r
   }
 })
 
-router.post('/picking-orders/reset-pick', authMiddleware, (req: AuthRequest, res) => {
+router.post('/picking-orders/reset-pick', authMiddleware, pickingOrderOutboundMiddleware, (req: AuthRequest, res) => {
   try {
     const { ids } = req.body
     if (!Array.isArray(ids) || ids.length === 0) {

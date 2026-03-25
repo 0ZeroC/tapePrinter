@@ -22,10 +22,11 @@ import StockOutPage from './pages/StockOutPage'
 import StockPage from './pages/StockPage'
 import UserManagePage from './pages/UserManagePage'
 import PickingOrderPage from './pages/PickingOrderPage'
+import MergedDeliverySheetPage from './pages/MergedDeliverySheetPage'
 
 const { Sider, Content } = Layout
 
-type PageKey = 'print' | 'data' | 'stockIn' | 'stockOut' | 'stock' | 'users' | 'pickingOrder'
+type PageKey = 'print' | 'data' | 'stockIn' | 'stockOut' | 'stock' | 'users' | 'pickingOrder' | 'mergedDelivery'
 
 interface CombinedLabelItem {
   code: string
@@ -78,6 +79,7 @@ function App(): JSX.Element {
         ]
       : []),
     { key: 'pickingOrder' as PageKey, icon: <UnorderedListOutlined />, label: '配货单' },
+    { key: 'mergedDelivery' as PageKey, icon: <UnorderedListOutlined />, label: '拼送货单' },
     ...(user.canViewInventory
       ? [{ key: 'stock' as PageKey, icon: <AppstoreOutlined />, label: '库存' }]
       : []),
@@ -126,6 +128,8 @@ function App(): JSX.Element {
             onOrderLoaded={handlePickingOrderLoaded}
           />
         )
+      case 'mergedDelivery':
+        return <MergedDeliverySheetPage />
       case 'users':
         return user.role === 'admin' ? <UserManagePage /> : <PrintPage />
       default:

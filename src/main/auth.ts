@@ -11,6 +11,7 @@ export interface JwtPayload {
   role: 'admin' | 'user'
   canViewInventory: boolean
   canManageData: boolean
+  canManagePickingOrders: boolean
 }
 
 export function signToken(payload: JwtPayload): string {
@@ -73,6 +74,15 @@ export function pickingOrderManageMiddleware(req: AuthRequest, res: Response, ne
   // 只有具有“查看库存”权限（或管理员）的用户，才允许在配货单中执行新增、编辑、删除等操作
   if (!req.user || (!req.user.canViewInventory && req.user.role !== 'admin')) {
     res.status(403).json({ success: false, error: '没有查看库存的权限，无法管理配货单' })
+    return
+  }
+  next()
+}
+
+export function pickingOrderOutboundMiddleware(req: AuthRequest, res: Response, next: NextFunction): void {
+  // 只有具备“配货出库权限”（或管理员）的用户，才能在配货单中执行出库/重置出库操作
+  if (!req.user || (!req.user.canManagePickingOrders && req.user.role !== 'admin')) {
+    res.status(403).json({ success: false, error: '没有配货出库权限' })
     return
   }
   next()

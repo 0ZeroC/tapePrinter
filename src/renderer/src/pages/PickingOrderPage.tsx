@@ -559,6 +559,8 @@ function PickingOrderPage({ onOpenPrintLabel, initialOrderNo, onOrderLoaded }: P
   const { user } = useAuth()
   // 只有具有“查看库存”权限的用户，才允许在配货单中进行新增、编辑、删除等管理操作
   const canManage = user?.canViewInventory ?? false
+  // 只有具有“配货出库权限”的用户，才允许在配货单中执行出库相关操作
+  const canOutbound = user?.canManagePickingOrders ?? false
 
   const [orderNoInput, setOrderNoInput] = useState('')
   const [currentOrderNo, setCurrentOrderNo] = useState('')
@@ -710,6 +712,10 @@ function PickingOrderPage({ onOpenPrintLabel, initialOrderNo, onOrderLoaded }: P
   }, [currentOrderNo])
 
   const handleResetPick = useCallback(async (ids: number[]) => {
+    if (!canOutbound) {
+      message.warning('当前用户没有配货出库权限')
+      return
+    }
     try {
       const result = await api.resetPickingItems(ids)
       if (result.success) {
@@ -721,7 +727,7 @@ function PickingOrderPage({ onOpenPrintLabel, initialOrderNo, onOrderLoaded }: P
     } catch {
       message.error('重置出错')
     }
-  }, [currentOrderNo, loadOrder])
+  }, [canOutbound, currentOrderNo, loadOrder])
 
   const handleOpenAddItem = useCallback(() => {
     setEditingItem(null)
@@ -750,7 +756,7 @@ function PickingOrderPage({ onOpenPrintLabel, initialOrderNo, onOrderLoaded }: P
     try {
       const values = await itemForm.validateFields()
       setItemSubmitting(true)
-      const payload = {
+      const payload: Parameters<typeof api.addPickingOrderItem>[0] = {
         order_no: values.order_no,
         seq_no: values.seq_no,
         product_code: values.product_code,
@@ -896,6 +902,10 @@ function PickingOrderPage({ onOpenPrintLabel, initialOrderNo, onOrderLoaded }: P
   }, [resolveProductByCode])
 
   const handleOpenOutboundChoice = useCallback((record: PickingOrderItem) => {
+    if (!canOutbound) {
+      message.warning('当前用户没有配货出库权限')
+      return
+    }
     if (record.is_picked === 1) return
 
     // 若为副转只物料，则直接按规则拆分出库（不允许按原物料直接扣减库存）
@@ -914,7 +924,7 @@ function PickingOrderPage({ onOpenPrintLabel, initialOrderNo, onOrderLoaded }: P
 
     setOutboundTargetItem(record)
     setOutboundChoiceOpen(true)
-  }, [handleAutoSubBoltSplit, hasBothFlatCodes])
+  }, [canOutbound, handleAutoSubBoltSplit, hasBothFlatCodes])
 
   const handleConfirmFlatPadChoice = useCallback(() => {
     if (!flatPadChoiceItem || !flatPadChoiceRule) return
@@ -952,6 +962,10 @@ function PickingOrderPage({ onOpenPrintLabel, initialOrderNo, onOrderLoaded }: P
   }, [outboundTargetItem])
 
   const handleConfirmNoSplit = useCallback(async () => {
+    if (!canOutbound) {
+      message.warning('当前用户没有配货出库权限')
+      return
+    }
     if (!noSplitTargetItem) return
     const qty = noSplitActualQty
     if (!qty || qty <= 0) {
@@ -999,7 +1013,7 @@ function PickingOrderPage({ onOpenPrintLabel, initialOrderNo, onOrderLoaded }: P
     } finally {
       setNoSplitSubmitting(false)
     }
-  }, [noSplitTargetItem, noSplitActualQty, noSplitRemark, currentOrderNo, loadOrder])
+  }, [canOutbound, noSplitTargetItem, noSplitActualQty, noSplitRemark, currentOrderNo, loadOrder])
 
   const handleCloseSplitModal = useCallback(() => {
     setSplitModalOpen(false)
@@ -1056,6 +1070,10 @@ function PickingOrderPage({ onOpenPrintLabel, initialOrderNo, onOrderLoaded }: P
   }, [])
 
   const doConfirmSplit = useCallback(async () => {
+    if (!canOutbound) {
+      message.warning('当前用户没有配货出库权限')
+      return
+    }
     if (!splitTargetItem) return
     const validRows = splitRows.filter((r) => typeof r.quantity === 'number' && r.quantity > 0)
     if (validRows.length === 0) return
@@ -1127,7 +1145,7 @@ function PickingOrderPage({ onOpenPrintLabel, initialOrderNo, onOrderLoaded }: P
     } finally {
       setSplitSubmitting(false)
     }
-  }, [splitTargetItem, splitRows, splitRemark, handleCloseSplitModal, loadOrder, currentOrderNo])
+  }, [canOutbound, splitTargetItem, splitRows, splitRemark, handleCloseSplitModal, loadOrder, currentOrderNo])
 
   const handleConfirmSplit = useCallback(() => {
     if (!splitTargetItem) return
@@ -1248,6 +1266,19 @@ function PickingOrderPage({ onOpenPrintLabel, initialOrderNo, onOrderLoaded }: P
     if (currentOrderNo) loadOrder(currentOrderNo)
   }, [currentOrderNo, loadOrder])
 
+  const getOutboundStatus = useCallback((item: PickingOrderItem): string => {
+    if (item.is_picked === 1) return '已出库'
+    const picked = item.picked_quantity ?? 0
+    if (picked > 0) return '部分出库'
+    return '待出库'
+  }, [])
+
+  const getDeliveryFlowStatus = useCallback((item: PickingOrderItem): string => {
+    if (item.is_picked === 1) return '已送货'
+    if (item.delivery_note_printed === 1) return '已配送货单已打'
+    return '待配货'
+  }, [])
+
   const handleExportOrders = useCallback(async (orderNos?: string[]) => {
     try {
       const result = await api.getPickingOrderExportData(orderNos)
@@ -1260,6 +1291,20 @@ function PickingOrderPage({ onOpenPrintLabel, initialOrderNo, onOrderLoaded }: P
         message.warning('没有可导出的数据')
         return
       }
+      const hasOutbound = (item: PickingOrderItem): boolean => item.is_picked === 1 || (item.picked_quantity ?? 0) > 0
+      const orderStatusMap = new Map<string, string>()
+      const grouped = new Map<string, PickingOrderItem[]>()
+      for (const item of items) {
+        const rows = grouped.get(item.order_no) || []
+        rows.push(item)
+        grouped.set(item.order_no, rows)
+      }
+      for (const [orderNo, rows] of grouped.entries()) {
+        const allDelivered = rows.every((row) => row.is_picked === 1)
+        const anyOutbound = rows.some((row) => hasOutbound(row))
+        const orderStatus = allDelivered ? '已送货' : (anyOutbound ? '在途订单' : '待提计划')
+        orderStatusMap.set(orderNo, orderStatus)
+      }
       const wsData = items.map((r) => ({
         单号: r.order_no,
         序号: r.seq_no,
@@ -1270,12 +1315,16 @@ function PickingOrderPage({ onOpenPrintLabel, initialOrderNo, onOrderLoaded }: P
         工程名称: r.project_name,
         需求日期: r.required_date,
         计划员: r.planner,
-        状态: r.is_picked === 1 ? '已出库' : '待配货'
+        出库状态: getOutboundStatus(r),
+        送货流程状态: getDeliveryFlowStatus(r),
+        订单状态: orderStatusMap.get(r.order_no) || '待提计划'
       }))
       const ws = XLSX.utils.json_to_sheet(wsData)
       const wb = XLSX.utils.book_new()
       XLSX.utils.book_append_sheet(wb, ws, '配货单')
-      XLSX.writeFile(wb, `配货单导出_${new Date().toISOString().slice(0, 10)}.xlsx`)
+      const now = new Date()
+      const dateStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
+      XLSX.writeFile(wb, `配货单导出_${dateStr}.xlsx`)
       message.success(`已导出 ${items.length} 条记录`)
     } catch {
       message.error('导出出错')
@@ -1432,7 +1481,7 @@ function PickingOrderPage({ onOpenPrintLabel, initialOrderNo, onOrderLoaded }: P
       const firstCopyEndRow = renderOneCopy(1)
       renderOneCopy(firstCopyEndRow + 3)
 
-      const fileName = `送货单_${orderNo}_${new Date().toISOString().slice(0, 10)}.xlsx`
+      const fileName = `送货单_${orderNo}_${exportDateStr}.xlsx`
       const xlsxBuffer = await workbook.xlsx.writeBuffer()
       const blob = new Blob(
         [xlsxBuffer],
@@ -1446,6 +1495,14 @@ function PickingOrderPage({ onOpenPrintLabel, initialOrderNo, onOrderLoaded }: P
       a.click()
       document.body.removeChild(a)
       URL.revokeObjectURL(url)
+
+      const markResult = await api.markDeliveryNotePrinted(selectedItems.map((item) => item.id))
+      if (!markResult.success) {
+        message.warning(markResult.error || '送货单已导出，但标记“已打送货单”失败')
+      } else if (currentOrderNo) {
+        void loadOrder(currentOrderNo)
+      }
+
       message.success(`送货单导出成功（${selectedItems.length} 条，一式两份）`)
       if (!logoDataUrl) {
         message.warning('未加载到公司 Logo，已导出无 Logo 版本')
@@ -1453,7 +1510,7 @@ function PickingOrderPage({ onOpenPrintLabel, initialOrderNo, onOrderLoaded }: P
     } catch {
       message.error('导出送货单失败，请稍后重试')
     }
-  }, [selectedIds, currentOrderNo, orderItems])
+  }, [selectedIds, currentOrderNo, orderItems, loadOrder])
 
   const handleBatchDeleteOrders = useCallback(async () => {
     if (selectedOrderNos.length === 0) {
@@ -1673,6 +1730,10 @@ function PickingOrderPage({ onOpenPrintLabel, initialOrderNo, onOrderLoaded }: P
     items: PickingOrderItem[],
     flatPadChoiceForBatch?: '97' | '95'
   ) => {
+    if (!canOutbound) {
+      message.warning('当前用户没有配货出库权限')
+      return
+    }
     const payload = buildBatchOutboundPayload(items, flatPadChoiceForBatch)
     if (payload.length === 0) {
       message.warning('所选条目没有可出库数量')
@@ -1731,9 +1792,13 @@ function PickingOrderPage({ onOpenPrintLabel, initialOrderNo, onOrderLoaded }: P
         }
       }
     })
-  }, [buildBatchOutboundPayload, currentOrderNo, loadOrder])
+  }, [canOutbound, buildBatchOutboundPayload, currentOrderNo, loadOrder])
 
   const handleBatchOutbound = useCallback(() => {
+    if (!canOutbound) {
+      message.warning('当前用户没有配货出库权限')
+      return
+    }
     if (selectedIds.length === 0) {
       message.warning('请先勾选要出库的条目')
       return
@@ -1761,7 +1826,7 @@ function PickingOrderPage({ onOpenPrintLabel, initialOrderNo, onOrderLoaded }: P
     }
 
     executeBatchOutbound(items)
-  }, [selectedIds, orderItems, hasBothFlatCodes, executeBatchOutbound])
+  }, [canOutbound, selectedIds, orderItems, hasBothFlatCodes, executeBatchOutbound])
 
   const handleConfirmBatchFlatPadChoice = useCallback(() => {
     if (batchPendingItems.length === 0) {
@@ -1831,14 +1896,16 @@ function PickingOrderPage({ onOpenPrintLabel, initialOrderNo, onOrderLoaded }: P
         <Space size="small" wrap>
           <span title={v}>{v || record.product_code}</span>
           <Space size={4}>
-            <Button
-              type="primary"
-              size="small"
-              onClick={() => handleOpenOutboundChoice(record)}
-              disabled={record.is_picked === 1}
-            >
-              出库
-            </Button>
+            {canOutbound && (
+              <Button
+                type="primary"
+                size="small"
+                onClick={() => handleOpenOutboundChoice(record)}
+                disabled={record.is_picked === 1}
+              >
+                出库
+              </Button>
+            )}
             <Button
               type="link"
               size="small"
@@ -1944,7 +2011,7 @@ function PickingOrderPage({ onOpenPrintLabel, initialOrderNo, onOrderLoaded }: P
               </Popconfirm>
             </>
           )}
-          {((record.is_picked === 1) || ((record.is_picked === 0) && (record.picked_quantity ?? 0) > 0)) && (
+          {canOutbound && ((record.is_picked === 1) || ((record.is_picked === 0) && (record.picked_quantity ?? 0) > 0)) && (
             <Popconfirm
               title={record.is_picked === 1 ? '重置后将恢复库存、清除配货状态。是否继续？' : '撤销本次部分出库，恢复库存。是否继续？'}
               onConfirm={() => handleResetPick([record.id])}
@@ -2006,13 +2073,15 @@ function PickingOrderPage({ onOpenPrintLabel, initialOrderNo, onOrderLoaded }: P
           >
             拼箱
           </Button>
-          <Button
-            size="large"
-            onClick={handleBatchOutbound}
-            disabled={orderItems.length === 0}
-          >
-            统一出库
-          </Button>
+          {canOutbound && (
+            <Button
+              size="large"
+              onClick={handleBatchOutbound}
+              disabled={orderItems.length === 0}
+            >
+              统一出库
+            </Button>
+          )}
           <Button
             size="large"
             onClick={handleSelectByRule}
