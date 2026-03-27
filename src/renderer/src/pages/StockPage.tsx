@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, type CSSProperties } from 'react'
 import {
   Input,
   Button,
@@ -14,14 +14,22 @@ import {
   SearchOutlined,
   EditOutlined,
   DownloadOutlined,
-  UploadOutlined
+  UploadOutlined,
+  DashboardOutlined,
+  TableOutlined,
+  LineChartOutlined
 } from '@ant-design/icons'
 import * as XLSX from 'xlsx'
 import ResizableTable from '../components/ResizableTable'
 import { api, type InventoryWithProduct } from '../utils/api'
 import ImportInventoryModal from '../components/ImportInventoryModal'
+import StockDashboardPanel from '../components/StockDashboardPanel'
+import StockTrendPanel from '../components/StockTrendPanel'
+
+type StockViewMode = 'dashboard' | 'table' | 'trend'
 
 function StockPage(): JSX.Element {
+  const [viewMode, setViewMode] = useState<StockViewMode>('table')
   const [inventoryList, setInventoryList] = useState<InventoryWithProduct[]>([])
   const [filteredList, setFilteredList] = useState<InventoryWithProduct[]>([])
   const [loading, setLoading] = useState(false)
@@ -193,52 +201,143 @@ function StockPage(): JSX.Element {
     }
   ]
 
+  const tileBase: CSSProperties = {
+    width: 128,
+    height: 128,
+    borderRadius: 8,
+    border: '1px solid #d9d9d9',
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    cursor: 'pointer',
+    transition: 'all 0.2s',
+    background: '#fff'
+  }
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-      <Card size="small" style={{ marginBottom: 16 }}>
-        <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
-          <Input
-            placeholder="多条件搜索，用空格分隔，如：5783 10*20"
-            value={searchText}
-            onChange={(e) => handleSearchChange(e.target.value)}
-            prefix={<SearchOutlined />}
-            allowClear
-            size="large"
-            style={{ flex: 1, fontSize: 16 }}
-          />
-          <Button size="large" onClick={loadInventory} loading={loading}>
-            刷新
-          </Button>
-          <Button size="large" icon={<DownloadOutlined />} onClick={handleExport}>
-            导出 Excel
-          </Button>
-          <Button size="large" icon={<UploadOutlined />} onClick={() => setImportVisible(true)}>
-            导入库存
-          </Button>
-        </div>
-      </Card>
-
-      <Card
-        size="small"
-        title={`库存列表 ${filteredList.length > 0 ? `(${filteredList.length} 项)` : ''}`}
-        style={{ flex: 1, overflow: 'auto' }}
-        styles={{ body: { padding: 0 } }}
-      >
-        <ResizableTable
-          dataSource={filteredList}
-          columns={columns}
-          rowKey="product_id"
-          size="small"
-          pagination={{
-            pageSize: 30,
-            showSizeChanger: true,
-            pageSizeOptions: ['20', '30', '50', '100']
+      <div style={{ display: 'flex', gap: 16, marginBottom: 16, flexShrink: 0, flexWrap: 'wrap' }}>
+        <div
+          role="button"
+          tabIndex={0}
+          onClick={() => setViewMode('dashboard')}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') setViewMode('dashboard')
           }}
-          loading={loading}
-          locale={{ emptyText: <Empty description="暂无库存数据" /> }}
-          scroll={{ x: 'max-content' }}
-        />
-      </Card>
+          style={{
+            ...tileBase,
+            borderColor: viewMode === 'dashboard' ? '#1677ff' : '#d9d9d9',
+            boxShadow: viewMode === 'dashboard' ? '0 0 0 2px rgba(22, 119, 255, 0.2)' : undefined
+          }}
+        >
+          <DashboardOutlined style={{ fontSize: 32, color: '#1677ff' }} />
+          <span style={{ fontWeight: 600 }}>视图看板</span>
+          <span style={{ fontSize: 12, color: '#888' }}>一周出入库</span>
+        </div>
+        <div
+          role="button"
+          tabIndex={0}
+          onClick={() => setViewMode('trend')}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') setViewMode('trend')
+          }}
+          style={{
+            ...tileBase,
+            borderColor: viewMode === 'trend' ? '#1677ff' : '#d9d9d9',
+            boxShadow: viewMode === 'trend' ? '0 0 0 2px rgba(22, 119, 255, 0.2)' : undefined
+          }}
+        >
+          <LineChartOutlined style={{ fontSize: 32, color: '#1677ff' }} />
+          <span style={{ fontWeight: 600 }}>库存走势</span>
+          <span style={{ fontSize: 12, color: '#888' }}>单物料曲线</span>
+        </div>
+        <div
+          role="button"
+          tabIndex={0}
+          onClick={() => setViewMode('table')}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') setViewMode('table')
+          }}
+          style={{
+            ...tileBase,
+            borderColor: viewMode === 'table' ? '#1677ff' : '#d9d9d9',
+            boxShadow: viewMode === 'table' ? '0 0 0 2px rgba(22, 119, 255, 0.2)' : undefined
+          }}
+        >
+          <TableOutlined style={{ fontSize: 32, color: '#1677ff' }} />
+          <span style={{ fontWeight: 600 }}>库存查询</span>
+          <span style={{ fontSize: 12, color: '#888' }}>列表与修改</span>
+        </div>
+      </div>
+
+      {viewMode === 'table' ? (
+        <>
+          <Card size="small" style={{ marginBottom: 16 }}>
+            <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+              <Input
+                placeholder="多条件搜索，用空格分隔，如：5783 10*20"
+                value={searchText}
+                onChange={(e) => handleSearchChange(e.target.value)}
+                prefix={<SearchOutlined />}
+                allowClear
+                size="large"
+                style={{ flex: 1, fontSize: 16 }}
+              />
+              <Button size="large" onClick={loadInventory} loading={loading}>
+                刷新
+              </Button>
+              <Button size="large" icon={<DownloadOutlined />} onClick={handleExport}>
+                导出 Excel
+              </Button>
+              <Button size="large" icon={<UploadOutlined />} onClick={() => setImportVisible(true)}>
+                导入库存
+              </Button>
+            </div>
+          </Card>
+
+          <Card
+            size="small"
+            title={`库存列表 ${filteredList.length > 0 ? `(${filteredList.length} 项)` : ''}`}
+            style={{ flex: 1, overflow: 'auto' }}
+            styles={{ body: { padding: 0 } }}
+          >
+            <ResizableTable
+              dataSource={filteredList}
+              columns={columns}
+              rowKey="product_id"
+              size="small"
+              pagination={{
+                pageSize: 30,
+                showSizeChanger: true,
+                pageSizeOptions: ['20', '30', '50', '100']
+              }}
+              loading={loading}
+              locale={{ emptyText: <Empty description="暂无库存数据" /> }}
+              scroll={{ x: 'max-content' }}
+            />
+          </Card>
+        </>
+      ) : viewMode === 'dashboard' ? (
+        <Card
+          size="small"
+          title="库存看板"
+          style={{ flex: 1, overflow: 'auto', display: 'flex', flexDirection: 'column' }}
+          styles={{ body: { flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 } }}
+        >
+          <StockDashboardPanel />
+        </Card>
+      ) : (
+        <Card
+          size="small"
+          title="库存走势"
+          style={{ flex: 1, overflow: 'auto', display: 'flex', flexDirection: 'column' }}
+          styles={{ body: { flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 } }}
+        >
+          <StockTrendPanel inventoryList={inventoryList} />
+        </Card>
+      )}
 
       <Modal
         title="修改库存"

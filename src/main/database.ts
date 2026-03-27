@@ -936,6 +936,105 @@ export function getInventoryLogs(
   return stmt.all(...params) as InventoryLog[]
 }
 
+const WEEK_START_SQL = `datetime('now', '-7 days', 'localtime')`
+
+export interface WeeklyOutboundRow {
+  description: string
+  quantity: number
+}
+
+export interface WeeklyInboundRemarkRow {
+  remark: string
+  count: number
+}
+
+export interface WeeklyInventoryStats {
+  topOutbound: WeeklyOutboundRow[]
+  topInbound: WeeklyOutboundRow[]
+  topInboundRemarks: WeeklyInboundRemarkRow[]
+}
+
+/** 最近 7 天（本地时间）按物料描述汇总的出入库量排行 */
+export function getWeeklyInventoryStats(): WeeklyInventoryStats {
+  const topOutbound = db
+    .prepare(
+      `SELECT COALESCE(NULLIF(TRIM(p.description), ''), p.name, p.code) AS description,
+              SUM(l.quantity) AS quantity
+       FROM inventory_logs l
+       JOIN products p ON p.id = l.product_id
+       WHERE l.type = 'out' AND datetime(l.created_at) >= ${WEEK_START_SQL}
+       GROUP BY l.product_id
+       ORDER BY quantity DESC
+       LIMIT 8`
+    )
+    .all() as WeeklyOutboundRow[]
+
+  const topInbound = db
+    .prepare(
+      `SELECT COALESCE(NULLIF(TRIM(p.description), ''), p.name, p.code) AS description,
+              SUM(l.quantity) AS quantity
+       FROM inventory_logs l
+       JOIN products p ON p.id = l.product_id
+       WHERE l.type = 'in' AND datetime(l.created_at) >= ${WEEK_START_SQL}
+       GROUP BY l.product_id
+       ORDER BY quantity DESC
+       LIMIT 8`
+    )
+    .all() as WeeklyOutboundRow[]
+
+  const topInboundRemarks = db
+    .prepare(
+      `SELECT l.remark AS remark, COUNT(*) AS count
+       FROM inventory_logs l
+       WHERE l.type = 'in'
+         AND datetime(l.created_at) >= ${WEEK_START_SQL}
+         AND TRIM(COALESCE(l.remark, '')) != ''
+       GROUP BY l.remark
+       ORDER BY count DESC
+       LIMIT 8`
+    )
+    .all() as WeeklyInboundRemarkRow[]
+
+  return { topOutbound, topInbound, topInboundRemarks }
+}
+
+export interface InventoryTrendPoint {
+  time: string
+  balance: number
+}
+
+/** 按流水重算某物料每次变动后的库存，用于走势折线图（不限 500 条） */
+export function getInventoryTrendPoints(productId: number): InventoryTrendPoint[] {
+  const row = db.prepare('SELECT quantity, updated_at FROM inventory WHERE product_id = ?').get(productId) as
+    | { quantity: number; updated_at: string }
+    | undefined
+  const current = row?.quantity ?? 0
+
+  const logs = db
+    .prepare(
+      `SELECT type, quantity, created_at FROM inventory_logs
+       WHERE product_id = ? ORDER BY datetime(created_at) ASC`
+    )
+    .all(productId) as { type: string; quantity: number; created_at: string }[]
+
+  if (logs.length === 0) {
+    const t = row?.updated_at ?? new Date().toISOString().slice(0, 19).replace('T', ' ')
+    return [{ time: t, balance: current }]
+  }
+
+  let sumDelta = 0
+  for (const log of logs) {
+    sumDelta += log.type === 'in' ? log.quantity : -log.quantity
+  }
+  let balance = current - sumDelta
+  const points: InventoryTrendPoint[] = []
+  for (const log of logs) {
+    balance += log.type === 'in' ? log.quantity : -log.quantity
+    points.push({ time: log.created_at, balance })
+  }
+  return points
+}
+
 // ==============================
 // Print with inventory deduction
 // ==============================

@@ -58,6 +58,27 @@ export interface InventoryWithProduct {
   special_note: string
 }
 
+export interface WeeklyRankRow {
+  description: string
+  quantity: number
+}
+
+export interface WeeklyRemarkRankRow {
+  remark: string
+  count: number
+}
+
+export interface WeeklyInventoryStats {
+  topOutbound: WeeklyRankRow[]
+  topInbound: WeeklyRankRow[]
+  topInboundRemarks: WeeklyRemarkRankRow[]
+}
+
+export interface InventoryTrendPoint {
+  time: string
+  balance: number
+}
+
 export interface UserInfo {
   userId: number
   username: string
@@ -273,6 +294,11 @@ export const api = {
     const qs = params.toString()
     return request<InventoryLog[]>(`/inventory/logs${qs ? '?' + qs : ''}`)
   },
+
+  getWeeklyInventoryStats: () => request<WeeklyInventoryStats>('/inventory/stats/weekly'),
+
+  getInventoryTrend: (productId: number) =>
+    request<InventoryTrendPoint[]>(`/inventory/trend/${productId}`),
 
   deleteInventoryLogs: (ids: number[]) =>
     request<number>('/inventory/logs/batch-delete', {

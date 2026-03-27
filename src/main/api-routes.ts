@@ -16,6 +16,8 @@ import {
   setInventory,
   importInventory,
   getInventoryLogs,
+  getWeeklyInventoryStats,
+  getInventoryTrendPoints,
   deleteInventoryLogs,
   updateInventoryInLog,
   revokeInventoryLog,
@@ -315,6 +317,27 @@ router.get('/inventory/logs', authMiddleware, inventoryViewMiddleware, (req, res
     const productId = req.query.productId ? parseInt(req.query.productId as string) : undefined
     const type = req.query.type as 'in' | 'out' | undefined
     res.json(ok(getInventoryLogs(productId, type)))
+  } catch (err) {
+    res.json(fail((err as Error).message))
+  }
+})
+
+router.get('/inventory/stats/weekly', authMiddleware, inventoryViewMiddleware, (_req, res) => {
+  try {
+    res.json(ok(getWeeklyInventoryStats()))
+  } catch (err) {
+    res.json(fail((err as Error).message))
+  }
+})
+
+router.get('/inventory/trend/:productId', authMiddleware, inventoryViewMiddleware, (req, res) => {
+  try {
+    const productId = Number.parseInt(String(req.params.productId), 10)
+    if (!Number.isFinite(productId) || productId <= 0) {
+      res.json(fail('无效的物料 ID'))
+      return
+    }
+    res.json(ok(getInventoryTrendPoints(productId)))
   } catch (err) {
     res.json(fail((err as Error).message))
   }
