@@ -1,10 +1,10 @@
 {
   "name": "inventory-management",
-  "version": "2.5.3",
+  "version": "2.5.4",
   "description": "库存管理系统",
   "main": "./out/main/index.js",
   "scripts": {
-    "dev": "electron-vite dev",
+    "dev": "env -u ELECTRON_RUN_AS_NODE electron-vite dev",
     "build": "electron-vite build",
     "postinstall": "electron-builder install-app-deps",
     "pack": "npm run build && electron-builder --dir",

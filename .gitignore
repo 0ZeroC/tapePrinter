@@ -1,6 +1,9 @@
 # Dependencies
 node_modules/
 
+# Local npm cache must never be committed (avoid Windows cache path as repo folder)
+E:\npm-cache/
+
 # Build output
 out/
 dist/

@@ -20,6 +20,125 @@ import { api, type Product, type InventoryLog } from '../utils/api'
 import { useAuth } from '../contexts/AuthContext'
 import StockImportModal from '../components/StockImportModal'
 
+const REMARK_HISTORY_KEY = 'tapePrinter:stockInRemarkHistory'
+
+function readRemarkHistoryFromStorage(): string[] {
+  try {
+    const raw = localStorage.getItem(REMARK_HISTORY_KEY)
+    if (!raw) return []
+    const arr = JSON.parse(raw) as unknown
+    if (!Array.isArray(arr)) return []
+    return arr.filter((x): x is string => typeof x === 'string' && x.trim().length > 0)
+  } catch {
+    return []
+  }
+}
+
+function pushRemarkHistoryToStorage(text: string) {
+  const t = text.trim()
+  if (!t) return
+  const prev = readRemarkHistoryFromStorage()
+  const next = [t, ...prev.filter((x) => x !== t)].slice(0, 80)
+  try {
+    localStorage.setItem(REMARK_HISTORY_KEY, JSON.stringify(next))
+  } catch {
+    // ignore quota
+  }
+}
+
+/** 入库备注：前缀联想（不用 AutoComplete+TextArea，避免 antd 内部 Select 与多行输入重复渲染成两个框） */
+function RemarkSuggestTextArea({
+  value,
+  onChange,
+  candidates,
+  placeholder,
+  rows = 2
+}: {
+  value: string
+  onChange: (v: string) => void
+  candidates: string[]
+  placeholder?: string
+  rows?: number
+}): JSX.Element {
+  const [panelOpen, setPanelOpen] = useState(false)
+  const blurCloseTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const suggestions = useMemo(() => {
+    const q = value.trim()
+    if (q.length === 0) return []
+    const ql = q.toLowerCase()
+    return candidates.filter((r) => r.toLowerCase().startsWith(ql)).slice(0, 20)
+  }, [value, candidates])
+
+  const showPanel = panelOpen && suggestions.length > 0 && value.trim().length > 0
+
+  useEffect(() => {
+    return () => {
+      if (blurCloseTimer.current) clearTimeout(blurCloseTimer.current)
+    }
+  }, [])
+
+  return (
+    <div style={{ position: 'relative', width: '100%' }}>
+      <Input.TextArea
+        value={value}
+        rows={rows}
+        placeholder={placeholder}
+        onChange={(e) => onChange(e.target.value)}
+        onFocus={() => {
+          if (blurCloseTimer.current) {
+            clearTimeout(blurCloseTimer.current)
+            blurCloseTimer.current = null
+          }
+          setPanelOpen(true)
+        }}
+        onBlur={() => {
+          blurCloseTimer.current = setTimeout(() => setPanelOpen(false), 150)
+        }}
+      />
+      {showPanel && (
+        <div
+          role="listbox"
+          style={{
+            position: 'absolute',
+            left: 0,
+            right: 0,
+            top: '100%',
+            zIndex: 1050,
+            marginTop: 4,
+            maxHeight: 220,
+            overflow: 'auto',
+            background: '#fff',
+            border: '1px solid #d9d9d9',
+            borderRadius: 6,
+            boxShadow: '0 6px 16px 0 rgba(0, 0, 0, 0.08), 0 3px 6px -4px rgba(0, 0, 0, 0.12)'
+          }}
+        >
+          {suggestions.map((text) => (
+            <div
+              key={text}
+              role="option"
+              style={{
+                padding: '8px 12px',
+                cursor: 'pointer',
+                fontSize: 14,
+                lineHeight: 1.5
+              }}
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => {
+                onChange(text)
+                setPanelOpen(false)
+              }}
+            >
+              {text}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 function StockInPage(): JSX.Element {
   const { user } = useAuth()
   const [searchText, setSearchText] = useState('')
@@ -49,7 +168,23 @@ function StockInPage(): JSX.Element {
   const [editRemark, setEditRemark] = useState('')
   const [editCurrentStock, setEditCurrentStock] = useState<number | null>(null)
   const [editSubmitting, setEditSubmitting] = useState(false)
+  /** 成功写入备注后递增，以合并 localStorage 与列表候选 */
+  const [remarkHistoryRev, setRemarkHistoryRev] = useState(0)
   const pageSize = 20
+
+  const remarkCandidates = useMemo(() => {
+    const seen = new Set<string>()
+    const out: string[] = []
+    const add = (s: string) => {
+      const t = s.trim()
+      if (!t || seen.has(t)) return
+      seen.add(t)
+      out.push(t)
+    }
+    for (const log of logs) add(log.remark || '')
+    for (const r of readRemarkHistoryFromStorage()) add(r)
+    return out
+  }, [logs, remarkHistoryRev])
 
   const isAdmin = user?.role === 'admin'
   const canViewInventory = user?.canViewInventory ?? false
@@ -151,6 +286,8 @@ function StockInPage(): JSX.Element {
       const result = await api.stockIn(selectedProduct.id, quantity, remark)
       if (result.success) {
         message.success(`入库成功：${selectedProduct.name} x ${quantity}`)
+        pushRemarkHistoryToStorage(remark)
+        setRemarkHistoryRev((x) => x + 1)
         setModalOpen(false)
         setSearchText('')
         setSearchResults([])
@@ -234,6 +371,8 @@ function StockInPage(): JSX.Element {
       const result = await api.updateInventoryInLog(editingLog.id, qty, editRemark)
       if (result.success) {
         message.success('修改成功')
+        pushRemarkHistoryToStorage(editRemark)
+        setRemarkHistoryRev((x) => x + 1)
         setEditModalOpen(false)
         setEditingLog(null)
         loadLogs()
@@ -609,10 +748,11 @@ function StockInPage(): JSX.Element {
             </div>
             <div style={{ marginBottom: 16 }}>
               <div style={{ marginBottom: 8, fontWeight: 500 }}>备注（选填）：</div>
-              <Input.TextArea
+              <RemarkSuggestTextArea
                 value={remark}
-                onChange={(e) => setRemark(e.target.value)}
-                placeholder="输入备注信息..."
+                onChange={setRemark}
+                candidates={remarkCandidates}
+                placeholder="输入备注信息，可输入关键字联想历史备注..."
                 rows={2}
               />
             </div>
@@ -684,10 +824,11 @@ function StockInPage(): JSX.Element {
             </div>
             <div style={{ marginBottom: 16 }}>
               <div style={{ marginBottom: 8, fontWeight: 500 }}>备注（选填）：</div>
-              <Input.TextArea
+              <RemarkSuggestTextArea
                 value={editRemark}
-                onChange={(e) => setEditRemark(e.target.value)}
-                placeholder="输入备注信息..."
+                onChange={setEditRemark}
+                candidates={remarkCandidates}
+                placeholder="输入备注信息，可输入关键字联想历史备注..."
                 rows={2}
               />
             </div>
