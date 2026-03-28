@@ -815,6 +815,7 @@ function PickingOrderPage({ onOpenPrintLabel, initialOrderNo, onOrderLoaded }: P
           surface_treatment: '',
           material: '',
           special_note: '',
+          drawings_count: 0,
           created_at: '',
           updated_at: ''
         } as Product,
@@ -851,6 +852,7 @@ function PickingOrderPage({ onOpenPrintLabel, initialOrderNo, onOrderLoaded }: P
       surface_treatment: '',
       material: '',
       special_note: '',
+      drawings_count: 0,
       created_at: '',
       updated_at: ''
     } as Product

@@ -1,5 +1,7 @@
 import { Router } from 'express'
 import multer from 'multer'
+import { existsSync } from 'fs'
+import { extname } from 'path'
 import {
   searchProducts,
   getAllProducts,
@@ -9,6 +11,13 @@ import {
   deleteProducts,
   deleteAllProducts,
   importProducts,
+  getProductById,
+  getProductDrawingAbsolutePath,
+  listProductDrawings,
+  addProductDrawingRecord,
+  deleteProductDrawingRecord,
+  getProductDrawingRow,
+  type ProductDrawingRow,
   stockIn,
   stockOut,
   getInventory,
@@ -16,7 +25,7 @@ import {
   setInventory,
   importInventory,
   getInventoryLogs,
-  getWeeklyInventoryStats,
+  getInventoryRankingStats,
   getInventoryTrendPoints,
   deleteInventoryLogs,
   updateInventoryInLog,
@@ -63,6 +72,55 @@ import {
 
 const router = Router()
 const upload = multer({ storage: multer.memoryStorage() })
+
+const ALLOWED_DRAWING_MIMES = new Set([
+  'application/pdf',
+  'application/x-pdf',
+  'image/jpeg',
+  'image/pjpeg',
+  'image/png',
+  'image/gif',
+  'image/webp'
+])
+
+const DRAWING_EXT = new Set(['.pdf', '.png', '.jpg', '.jpeg', '.gif', '.webp'])
+
+const drawingUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 30 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    if (ALLOWED_DRAWING_MIMES.has(file.mimetype)) {
+      cb(null, true)
+      return
+    }
+    const ext = extname(file.originalname || '').toLowerCase()
+    if (DRAWING_EXT.has(ext)) {
+      cb(null, true)
+      return
+    }
+    cb(new Error('仅支持 PDF 或常见图片（jpg/png/gif/webp）'))
+  }
+})
+
+function contentTypeForDrawingFile(filePath: string): string {
+  const ext = extname(filePath).toLowerCase()
+  if (ext === '.pdf') return 'application/pdf'
+  if (ext === '.png') return 'image/png'
+  if (ext === '.jpg' || ext === '.jpeg') return 'image/jpeg'
+  if (ext === '.gif') return 'image/gif'
+  if (ext === '.webp') return 'image/webp'
+  return 'application/octet-stream'
+}
+
+function toDrawingMeta(row: ProductDrawingRow) {
+  return {
+    id: row.id,
+    product_id: row.product_id,
+    original_name: row.original_name,
+    sort_order: row.sort_order,
+    created_at: row.created_at
+  }
+}
 
 function ok(data?: unknown) {
   return { success: true, data }
@@ -292,9 +350,132 @@ router.delete('/products', authMiddleware, adminMiddleware, (_req, res) => {
 
 router.post('/products/import', authMiddleware, dataManageMiddleware, (req, res) => {
   try {
-    const products = req.body as Omit<Product, 'id' | 'created_at' | 'updated_at'>[]
+    const products = req.body as Omit<Product, 'id' | 'created_at' | 'updated_at' | 'drawings_count'>[]
     const result = importProducts(products)
     res.json(ok(result))
+  } catch (err) {
+    res.json(fail((err as Error).message))
+  }
+})
+
+/** 从 multer.fields 结果中取出文件（兼容不同版本的 req.files 结构） */
+function collectUploadedDrawingFiles(req: Express.Request): Express.Multer.File[] {
+  const raw = req.files
+  if (!raw) return []
+  if (Array.isArray(raw)) return raw
+  const bag = raw as Record<string, Express.Multer.File[]>
+  return [...(bag.files ?? []), ...(bag.file ?? [])]
+}
+
+router.get('/products/drawings/:drawingId/file', authMiddleware, dataManageMiddleware, (req, res) => {
+  try {
+    const drawingId = Number.parseInt(String(req.params.drawingId), 10)
+    if (!Number.isFinite(drawingId) || drawingId <= 0) {
+      res.status(400).json(fail('无效的图纸 ID'))
+      return
+    }
+    const row = getProductDrawingRow(drawingId)
+    if (!row) {
+      res.status(404).json(fail('图纸不存在'))
+      return
+    }
+    const abs = getProductDrawingAbsolutePath(row.file_relpath)
+    if (!abs || !existsSync(abs)) {
+      res.status(404).json(fail('图纸文件不存在'))
+      return
+    }
+    res.setHeader('Content-Type', contentTypeForDrawingFile(abs))
+    res.sendFile(abs, (err) => {
+      if (err && !res.headersSent) {
+        res.status(500).json(fail('读取图纸失败'))
+      }
+    })
+  } catch (err) {
+    res.json(fail((err as Error).message))
+  }
+})
+
+router.get('/products/:id/drawings', authMiddleware, dataManageMiddleware, (req, res) => {
+  try {
+    const id = Number.parseInt(String(req.params.id), 10)
+    if (!Number.isFinite(id) || id <= 0) {
+      res.json(fail('无效的物料 ID'))
+      return
+    }
+    if (!getProductById(id)) {
+      res.json(fail('物料不存在'))
+      return
+    }
+    res.json(ok(listProductDrawings(id).map(toDrawingMeta)))
+  } catch (err) {
+    res.json(fail((err as Error).message))
+  }
+})
+
+router.post(
+  '/products/:id/drawings',
+  authMiddleware,
+  dataManageMiddleware,
+  (req, res, next) => {
+    drawingUpload.fields([
+      { name: 'files', maxCount: 30 },
+      { name: 'file', maxCount: 1 }
+    ])(req, res, (err: unknown) => {
+      if (err) {
+        const msg =
+          err instanceof multer.MulterError
+            ? err.code === 'LIMIT_FILE_SIZE'
+              ? '单文件过大（最大 30MB）'
+              : err.message
+            : (err as Error).message
+        res.json(fail(msg))
+        return
+      }
+      next()
+    })
+  },
+  (req, res) => {
+    try {
+      const id = Number.parseInt(String(req.params.id), 10)
+      if (!Number.isFinite(id) || id <= 0) {
+        res.json(fail('无效的物料 ID'))
+        return
+      }
+      if (!getProductById(id)) {
+        res.json(fail('物料不存在'))
+        return
+      }
+      const files = collectUploadedDrawingFiles(req)
+      if (files.length === 0) {
+        res.json(fail('没有上传文件'))
+        return
+      }
+      const added = files.map((f) => addProductDrawingRecord(id, f.buffer, f.originalname || 'file'))
+      res.json(ok({ drawings: added.map(toDrawingMeta), product: getProductById(id) }))
+    } catch (err) {
+      res.json(fail((err as Error).message))
+    }
+  }
+)
+
+router.delete('/products/drawings/:drawingId', authMiddleware, dataManageMiddleware, (req, res) => {
+  try {
+    const drawingId = Number.parseInt(String(req.params.drawingId), 10)
+    if (!Number.isFinite(drawingId) || drawingId <= 0) {
+      res.json(fail('无效的图纸 ID'))
+      return
+    }
+    const row = getProductDrawingRow(drawingId)
+    if (!row) {
+      res.json(fail('图纸不存在'))
+      return
+    }
+    const productId = row.product_id
+    if (!deleteProductDrawingRecord(drawingId)) {
+      res.json(fail('删除失败'))
+      return
+    }
+    res.json(ok({ product: getProductById(productId) }))
   } catch (err) {
     res.json(fail((err as Error).message))
   }
@@ -322,9 +503,15 @@ router.get('/inventory/logs', authMiddleware, inventoryViewMiddleware, (req, res
   }
 })
 
-router.get('/inventory/stats/weekly', authMiddleware, inventoryViewMiddleware, (_req, res) => {
+router.get('/inventory/stats/weekly', authMiddleware, inventoryViewMiddleware, (req, res) => {
   try {
-    res.json(ok(getWeeklyInventoryStats()))
+    const start = typeof req.query.start === 'string' ? req.query.start.trim() : ''
+    const end = typeof req.query.end === 'string' ? req.query.end.trim() : ''
+    if (!start || !end) {
+      res.json(fail('请提供开始日期与结束日期（YYYY-MM-DD）'))
+      return
+    }
+    res.json(ok(getInventoryRankingStats(start, end)))
   } catch (err) {
     res.json(fail((err as Error).message))
   }

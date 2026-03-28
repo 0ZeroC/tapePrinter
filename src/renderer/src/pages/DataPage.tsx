@@ -24,6 +24,7 @@ import ResizableTable from '../components/ResizableTable'
 import { api, type Product } from '../utils/api'
 import { useAuth } from '../contexts/AuthContext'
 import ProductForm from '../components/ProductForm'
+import ProductDrawingsModal from '../components/ProductDrawingsModal'
 import ImportModal from '../components/ImportModal'
 
 const { Title } = Typography
@@ -42,7 +43,16 @@ function DataPage(): JSX.Element {
 
   const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([])
 
+  const [drawingsProduct, setDrawingsProduct] = useState<Product | null>(null)
+
   const isAdmin = user?.role === 'admin'
+
+  const handleProductPatched = useCallback((p: Product) => {
+    setProducts((prev) => prev.map((x) => (x.id === p.id ? p : x)))
+    setFilteredProducts((prev) => prev.map((x) => (x.id === p.id ? p : x)))
+    setEditingProduct((cur) => (cur?.id === p.id ? p : cur))
+    setDrawingsProduct((cur) => (cur?.id === p.id ? p : cur))
+  }, [])
 
   const loadProducts = useCallback(async () => {
     setLoading(true)
@@ -210,6 +220,19 @@ function DataPage(): JSX.Element {
       width: 320,
       render: (text: string) =>
         text ? text : <span style={{ color: '#ccc' }}>-</span>
+    },
+    {
+      title: '图纸',
+      key: 'drawing',
+      width: 112,
+      render: (_: unknown, record: Product) => {
+        const n = Number(record.drawings_count) || 0
+        return (
+          <Button type="link" size="small" onClick={() => setDrawingsProduct(record)}>
+            {n > 0 ? `管理(${n})` : '管理'}
+          </Button>
+        )
+      }
     },
     {
       title: '物品名称',
@@ -383,10 +406,18 @@ function DataPage(): JSX.Element {
         visible={formVisible}
         product={editingProduct}
         onSuccess={handleFormSuccess}
+        onProductPatched={handleProductPatched}
         onCancel={() => {
           setFormVisible(false)
           setEditingProduct(null)
         }}
+      />
+
+      <ProductDrawingsModal
+        product={drawingsProduct}
+        open={drawingsProduct != null}
+        onClose={() => setDrawingsProduct(null)}
+        onProductUpdated={handleProductPatched}
       />
 
       <ImportModal

@@ -17,8 +17,18 @@ export interface ProductData {
   special_note: string
 }
 
+export interface ProductDrawingMeta {
+  id: number
+  product_id: number
+  original_name: string
+  sort_order: number
+  created_at: string
+}
+
 export interface Product extends ProductData {
   id: number
+  /** 图纸份数 */
+  drawings_count: number
   created_at: string
   updated_at: string
 }
@@ -72,6 +82,11 @@ export interface WeeklyInventoryStats {
   topOutbound: WeeklyRankRow[]
   topInbound: WeeklyRankRow[]
   topInboundRemarks: WeeklyRemarkRankRow[]
+}
+
+export type InventoryRankingDateRange = {
+  start: string
+  end: string
 }
 
 export interface InventoryTrendPoint {
@@ -167,6 +182,39 @@ export function setToken(token: string | null): void {
   }
 }
 
+/** 按图纸记录 ID 下载文件（需登录），用于预览 */
+export async function fetchProductDrawingFileBlob(
+  drawingId: number
+): Promise<{ blob: Blob; contentType: string }> {
+  const token = getToken()
+  let res: Response
+  try {
+    res = await fetch(`${BASE_URL}/products/drawings/${drawingId}/file`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {}
+    })
+  } catch {
+    throw new Error('无法连接服务，请确认应用已启动')
+  }
+  if (res.status === 401) {
+    setToken(null)
+    window.location.reload()
+    throw new Error('未登录')
+  }
+  if (!res.ok) {
+    let msg = '加载失败'
+    try {
+      const j = (await res.json()) as { error?: string }
+      if (j.error) msg = j.error
+    } catch {
+      // ignore
+    }
+    throw new Error(msg)
+  }
+  const contentType = res.headers.get('Content-Type') || 'application/octet-stream'
+  const blob = await res.blob()
+  return { blob, contentType }
+}
+
 async function request<T>(path: string, options?: RequestInit): Promise<ApiResponse<T>> {
   const token = getToken()
   const headers: Record<string, string> = {
@@ -179,13 +227,37 @@ async function request<T>(path: string, options?: RequestInit): Promise<ApiRespo
     headers['Content-Type'] = 'application/json'
   }
 
-  const res = await fetch(`${BASE_URL}${path}`, { ...options, headers })
+  let res: Response
+  try {
+    res = await fetch(`${BASE_URL}${path}`, { ...options, headers })
+  } catch {
+    return {
+      success: false,
+      error:
+        '无法连接 API（请用 npm run dev 启动完整 Electron 开发环境，或确认本机 3456 端口服务已启动）'
+    }
+  }
+
   if (res.status === 401) {
     setToken(null)
     window.location.reload()
     return { success: false, error: '未登录' }
   }
-  return res.json()
+
+  const raw = await res.text()
+  try {
+    const parsed = JSON.parse(raw || 'null') as ApiResponse<T> | null
+    if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      throw new SyntaxError('not an object')
+    }
+    return parsed
+  } catch {
+    const hint =
+      res.status === 502 || res.status === 504
+        ? '网关超时或未连上后端（开发模式需同时跑起 Electron 主进程里的 API 服务）'
+        : `接口返回非 JSON（HTTP ${res.status}）`
+    return { success: false, error: hint }
+  }
 }
 
 // Auth
@@ -258,6 +330,23 @@ export const api = {
       body: JSON.stringify(products)
     }),
 
+  listProductDrawings: (productId: number) =>
+    request<ProductDrawingMeta[]>(`/products/${productId}/drawings`),
+
+  uploadProductDrawings: (productId: number, files: File[]) => {
+    const formData = new FormData()
+    for (const f of files) {
+      formData.append('files', f)
+    }
+    return request<{ drawings: ProductDrawingMeta[]; product: Product }>(
+      `/products/${productId}/drawings`,
+      { method: 'POST', body: formData, headers: {} }
+    )
+  },
+
+  deleteProductDrawing: (drawingId: number) =>
+    request<{ product: Product }>(`/products/drawings/${drawingId}`, { method: 'DELETE' }),
+
   // Inventory
   getAllInventory: () => request<InventoryWithProduct[]>('/inventory'),
 
@@ -295,7 +384,10 @@ export const api = {
     return request<InventoryLog[]>(`/inventory/logs${qs ? '?' + qs : ''}`)
   },
 
-  getWeeklyInventoryStats: () => request<WeeklyInventoryStats>('/inventory/stats/weekly'),
+  getInventoryRankingStats: (range: InventoryRankingDateRange) =>
+    request<WeeklyInventoryStats>(
+      `/inventory/stats/weekly?start=${encodeURIComponent(range.start)}&end=${encodeURIComponent(range.end)}`
+    ),
 
   getInventoryTrend: (productId: number) =>
     request<InventoryTrendPoint[]>(`/inventory/trend/${productId}`),

@@ -1,6 +1,7 @@
 import Database from 'better-sqlite3'
 import { app } from 'electron'
-import { join } from 'path'
+import { join, extname, basename, resolve, relative } from 'path'
+import { existsSync, mkdirSync, unlinkSync, writeFileSync, rmSync } from 'fs'
 import bcrypt from 'bcryptjs'
 
 let db: Database.Database
@@ -15,8 +16,19 @@ export interface Product {
   surface_treatment: string
   material: string
   special_note: string
+  /** 图纸份数（由 product_drawings 汇总） */
+  drawings_count: number
   created_at?: string
   updated_at?: string
+}
+
+export interface ProductDrawingRow {
+  id: number
+  product_id: number
+  file_relpath: string
+  original_name: string
+  sort_order: number
+  created_at: string
 }
 
 export interface User {
@@ -112,6 +124,44 @@ export function initDatabase(): void {
   addColumnIfMissing('products', 'description', "TEXT DEFAULT ''")
   addColumnIfMissing('products', 'material', "TEXT DEFAULT ''")
   addColumnIfMissing('products', 'special_note', "TEXT DEFAULT ''")
+  addColumnIfMissing('products', 'drawing_path', "TEXT DEFAULT ''")
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS product_drawings (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      product_id INTEGER NOT NULL,
+      file_relpath TEXT NOT NULL,
+      original_name TEXT DEFAULT '',
+      sort_order INTEGER DEFAULT 0,
+      created_at TEXT DEFAULT (datetime('now', 'localtime'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_product_drawings_product ON product_drawings(product_id);
+  `)
+
+  const LEGACY_DRAWING_MIGRATED = 'legacy_product_drawing_path_migrated_v1'
+  if (getMeta(LEGACY_DRAWING_MIGRATED) !== '1') {
+    try {
+      const legacyRows = db
+        .prepare(
+          `SELECT id, drawing_path FROM products WHERE drawing_path IS NOT NULL AND drawing_path != ''`
+        )
+        .all() as { id: number; drawing_path: string }[]
+      const ins = db.prepare(`
+        INSERT INTO product_drawings (product_id, file_relpath, original_name, sort_order)
+        VALUES (?, ?, ?, 0)
+      `)
+      for (const row of legacyRows) {
+        const abs = getProductDrawingAbsolutePath(row.drawing_path)
+        if (abs && existsSync(abs)) {
+          ins.run(row.id, row.drawing_path, basename(row.drawing_path))
+        }
+      }
+      db.prepare(`UPDATE products SET drawing_path = '' WHERE drawing_path IS NOT NULL AND drawing_path != ''`).run()
+      setMeta(LEGACY_DRAWING_MIGRATED, '1')
+    } catch {
+      // ignore migration errors
+    }
+  }
 
   db.exec(`
     CREATE TABLE IF NOT EXISTS inventory (
@@ -262,6 +312,109 @@ export function getDatabase(): Database.Database {
 }
 
 // ==============================
+// Product drawings (files under userData/product-drawings)
+// ==============================
+
+export function getProductDrawingsRoot(): string {
+  return join(app.getPath('userData'), 'product-drawings')
+}
+
+export function getProductDrawingAbsolutePath(relPath: string): string | null {
+  if (!relPath || relPath.includes('..')) return null
+  const root = resolve(getProductDrawingsRoot())
+  const full = resolve(join(root, relPath))
+  const rel = relative(root, full)
+  if (!rel || rel.startsWith('..') || rel === '..') return null
+  return full
+}
+
+export function removeProductDrawingFile(relPath: string): void {
+  const full = getProductDrawingAbsolutePath(relPath)
+  if (!full || !existsSync(full)) return
+  try {
+    unlinkSync(full)
+  } catch {
+    // ignore
+  }
+}
+
+function sanitizeDrawingStem(name: string): string {
+  const stem = basename(name, extname(name)).replace(/[^a-zA-Z0-9._\u4e00-\u9fa5-]/g, '_')
+  return stem.slice(0, 120) || 'drawing'
+}
+
+export function writeProductDrawingFile(productId: number, buffer: Buffer, originalName: string): string {
+  const root = getProductDrawingsRoot()
+  const dir = join(root, String(productId))
+  if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
+  let ext = extname(originalName).toLowerCase()
+  if (!ext || ext.length > 12) ext = '.bin'
+  const stem = sanitizeDrawingStem(originalName)
+  const filename = `${Date.now()}_${stem}${ext}`
+  const rel = `${productId}/${filename}`
+  writeFileSync(join(root, rel), buffer)
+  return rel
+}
+
+export function touchProductUpdatedAt(productId: number): void {
+  db.prepare(`UPDATE products SET updated_at = CURRENT_TIMESTAMP WHERE id = ?`).run(productId)
+}
+
+export function listProductDrawings(productId: number): ProductDrawingRow[] {
+  return db
+    .prepare(
+      `SELECT * FROM product_drawings WHERE product_id = ? ORDER BY sort_order ASC, id ASC`
+    )
+    .all(productId) as ProductDrawingRow[]
+}
+
+export function getProductDrawingRow(drawingId: number): ProductDrawingRow | undefined {
+  return db.prepare('SELECT * FROM product_drawings WHERE id = ?').get(drawingId) as
+    | ProductDrawingRow
+    | undefined
+}
+
+export function addProductDrawingRecord(
+  productId: number,
+  buffer: Buffer,
+  originalName: string
+): ProductDrawingRow {
+  const rel = writeProductDrawingFile(productId, buffer, originalName)
+  const row = db
+    .prepare(
+      `SELECT COALESCE(MAX(sort_order), -1) + 1 AS n FROM product_drawings WHERE product_id = ?`
+    )
+    .get(productId) as { n: number }
+  const nextOrder = row?.n ?? 0
+  const ins = db.prepare(`
+    INSERT INTO product_drawings (product_id, file_relpath, original_name, sort_order)
+    VALUES (?, ?, ?, ?)
+  `)
+  const result = ins.run(productId, rel, basename(originalName), nextOrder)
+  touchProductUpdatedAt(productId)
+  return db.prepare('SELECT * FROM product_drawings WHERE id = ?').get(result.lastInsertRowid) as ProductDrawingRow
+}
+
+export function deleteProductDrawingRecord(drawingId: number): boolean {
+  const row = getProductDrawingRow(drawingId)
+  if (!row) return false
+  removeProductDrawingFile(row.file_relpath)
+  db.prepare('DELETE FROM product_drawings WHERE id = ?').run(drawingId)
+  touchProductUpdatedAt(row.product_id)
+  return true
+}
+
+export function deleteAllDrawingsForProductId(productId: number): void {
+  const rows = db
+    .prepare('SELECT file_relpath FROM product_drawings WHERE product_id = ?')
+    .all(productId) as { file_relpath: string }[]
+  for (const r of rows) {
+    removeProductDrawingFile(r.file_relpath)
+  }
+  db.prepare('DELETE FROM product_drawings WHERE product_id = ?').run(productId)
+}
+
+// ==============================
 // Products
 // ==============================
 
@@ -285,30 +438,43 @@ export function searchProducts(query: string): Product[] {
     const variants = getVariants(kw)
     const conditions = fields.flatMap((f) => variants.map((v) => {
       params.push(`%${v}%`)
-      return `${f} LIKE ?`
+      return `p.${f} LIKE ?`
     }))
     whereClauses.push(`(${conditions.join(' OR ')})`)
   }
 
-  const sql = `SELECT * FROM products WHERE ${whereClauses.join(' AND ')} ORDER BY updated_at DESC LIMIT 100`
+  const sql = `SELECT p.*,
+    CAST((SELECT COUNT(1) FROM product_drawings d WHERE d.product_id = p.id) AS INTEGER) AS drawings_count
+    FROM products p WHERE ${whereClauses.join(' AND ')} ORDER BY p.updated_at DESC LIMIT 100`
   const stmt = db.prepare(sql)
   return stmt.all(...params) as Product[]
 }
 
 export function getAllProducts(): Product[] {
-  const stmt = db.prepare('SELECT * FROM products ORDER BY updated_at DESC')
+  const stmt = db.prepare(`
+    SELECT p.*,
+      CAST((SELECT COUNT(1) FROM product_drawings d WHERE d.product_id = p.id) AS INTEGER) AS drawings_count
+    FROM products p
+    ORDER BY p.updated_at DESC
+  `)
   return stmt.all() as Product[]
 }
 
 export function getProductById(id: number): Product | undefined {
-  const stmt = db.prepare('SELECT * FROM products WHERE id = ?')
+  const stmt = db.prepare(`
+    SELECT p.*,
+      CAST((SELECT COUNT(1) FROM product_drawings d WHERE d.product_id = p.id) AS INTEGER) AS drawings_count
+    FROM products p WHERE p.id = ?
+  `)
   return stmt.get(id) as Product | undefined
 }
 
-export function createProduct(product: Omit<Product, 'id' | 'created_at' | 'updated_at'>): Product {
+export function createProduct(
+  product: Omit<Product, 'id' | 'created_at' | 'updated_at' | 'drawings_count'>
+): Product {
   const stmt = db.prepare(`
-    INSERT INTO products (code, description, name, spec, grade, surface_treatment, material, special_note)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO products (code, description, name, spec, grade, surface_treatment, material, special_note, drawing_path)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
   `)
   const result = stmt.run(
     product.code,
@@ -318,14 +484,15 @@ export function createProduct(product: Omit<Product, 'id' | 'created_at' | 'upda
     product.grade || '',
     product.surface_treatment || '',
     product.material || '',
-    product.special_note || ''
+    product.special_note || '',
+    ''
   )
   return getProductById(result.lastInsertRowid as number)!
 }
 
 export function updateProduct(
   id: number,
-  product: Omit<Product, 'id' | 'created_at' | 'updated_at'>
+  product: Omit<Product, 'id' | 'created_at' | 'updated_at' | 'drawings_count'>
 ): Product | undefined {
   const stmt = db.prepare(`
     UPDATE products
@@ -349,6 +516,7 @@ export function updateProduct(
 
 export function deleteProduct(id: number): boolean {
   const txn = db.transaction(() => {
+    deleteAllDrawingsForProductId(id)
     db.prepare('DELETE FROM inventory WHERE product_id = ?').run(id)
     db.prepare('DELETE FROM products WHERE id = ?').run(id)
   })
@@ -359,6 +527,7 @@ export function deleteProduct(id: number): boolean {
 export function deleteProducts(ids: number[]): number {
   const txn = db.transaction(() => {
     for (const id of ids) {
+      deleteAllDrawingsForProductId(id)
       db.prepare('DELETE FROM inventory WHERE product_id = ?').run(id)
       db.prepare('DELETE FROM products WHERE id = ?').run(id)
     }
@@ -369,19 +538,37 @@ export function deleteProducts(ids: number[]): number {
 
 export function deleteAllProducts(): number {
   const txn = db.transaction(() => {
+    db.prepare('DELETE FROM product_drawings').run()
     db.prepare('DELETE FROM inventory').run()
     const result = db.prepare('DELETE FROM products').run()
+    try {
+      const dr = getProductDrawingsRoot()
+      if (existsSync(dr)) {
+        rmSync(dr, { recursive: true, force: true })
+      }
+    } catch {
+      // ignore
+    }
     return result.changes
   })
   return txn() as number
 }
 
 export function importProducts(
-  products: Omit<Product, 'id' | 'created_at' | 'updated_at'>[]
+  products: Omit<Product, 'id' | 'created_at' | 'updated_at' | 'drawings_count'>[]
 ): { success: number; failed: number; errors: string[] } {
-  const insertStmt = db.prepare(`
-    INSERT OR REPLACE INTO products (code, description, name, spec, grade, surface_treatment, material, special_note)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+  const upsertStmt = db.prepare(`
+    INSERT INTO products (code, description, name, spec, grade, surface_treatment, material, special_note, drawing_path)
+    VALUES (@code, @description, @name, @spec, @grade, @surface_treatment, @material, @special_note, '')
+    ON CONFLICT(code) DO UPDATE SET
+      description = excluded.description,
+      name = excluded.name,
+      spec = excluded.spec,
+      grade = excluded.grade,
+      surface_treatment = excluded.surface_treatment,
+      material = excluded.material,
+      special_note = excluded.special_note,
+      updated_at = CURRENT_TIMESTAMP
   `)
 
   let success = 0
@@ -389,7 +576,7 @@ export function importProducts(
   const errors: string[] = []
 
   const insertMany = db.transaction(
-    (items: Omit<Product, 'id' | 'created_at' | 'updated_at'>[]) => {
+    (items: Omit<Product, 'id' | 'created_at' | 'updated_at' | 'drawings_count'>[]) => {
       for (const item of items) {
         try {
           if (!item.code || !item.name) {
@@ -397,16 +584,16 @@ export function importProducts(
             errors.push(`编码或名称为空: ${JSON.stringify(item)}`)
             continue
           }
-          insertStmt.run(
-            item.code,
-            item.description || '',
-            item.name,
-            item.spec || '',
-            item.grade || '',
-            item.surface_treatment || '',
-            item.material || '',
-            item.special_note || ''
-          )
+          upsertStmt.run({
+            code: item.code,
+            description: item.description || '',
+            name: item.name,
+            spec: item.spec || '',
+            grade: item.grade || '',
+            surface_treatment: item.surface_treatment || '',
+            material: item.material || '',
+            special_note: item.special_note || ''
+          })
           success++
         } catch (err) {
           failed++
@@ -936,7 +1123,19 @@ export function getInventoryLogs(
   return stmt.all(...params) as InventoryLog[]
 }
 
-const WEEK_START_SQL = `datetime('now', '-7 days', 'localtime')`
+const STATS_YMD_RE = /^\d{4}-\d{2}-\d{2}$/
+
+function parseYmdLocal(ymd: string): Date {
+  const [y, mo, d] = ymd.split('-').map((x) => parseInt(x, 10))
+  if (![y, mo, d].every((n) => Number.isFinite(n))) {
+    throw new Error('日期无效')
+  }
+  const dt = new Date(y, mo - 1, d)
+  if (dt.getFullYear() !== y || dt.getMonth() !== mo - 1 || dt.getDate() !== d) {
+    throw new Error('日期无效')
+  }
+  return dt
+}
 
 export interface WeeklyOutboundRow {
   description: string
@@ -954,20 +1153,37 @@ export interface WeeklyInventoryStats {
   topInboundRemarks: WeeklyInboundRemarkRow[]
 }
 
-/** 最近 7 天（本地时间）按物料描述汇总的出入库量排行 */
-export function getWeeklyInventoryStats(): WeeklyInventoryStats {
+/** 按日历日（含起止日全天）筛选流水，汇总出入库排行；created_at 为本地时间字符串 */
+export function getInventoryRankingStats(startDate: string, endDate: string): WeeklyInventoryStats {
+  const s = startDate.trim()
+  const e = endDate.trim()
+  if (!STATS_YMD_RE.test(s) || !STATS_YMD_RE.test(e)) {
+    throw new Error('日期须为 YYYY-MM-DD')
+  }
+  const start = parseYmdLocal(s)
+  const end = parseYmdLocal(e)
+  if (start > end) {
+    throw new Error('开始日期不能晚于结束日期')
+  }
+  const spanDays = Math.floor((end.getTime() - start.getTime()) / (24 * 60 * 60 * 1000)) + 1
+  if (spanDays > 366 * 5) {
+    throw new Error('查询区间最长 5 年')
+  }
+
   const topOutbound = db
     .prepare(
       `SELECT COALESCE(NULLIF(TRIM(p.description), ''), p.name, p.code) AS description,
               SUM(l.quantity) AS quantity
        FROM inventory_logs l
        JOIN products p ON p.id = l.product_id
-       WHERE l.type = 'out' AND datetime(l.created_at) >= ${WEEK_START_SQL}
+       WHERE l.type = 'out'
+         AND date(l.created_at) >= date(?)
+         AND date(l.created_at) <= date(?)
        GROUP BY l.product_id
        ORDER BY quantity DESC
        LIMIT 8`
     )
-    .all() as WeeklyOutboundRow[]
+    .all(s, e) as WeeklyOutboundRow[]
 
   const topInbound = db
     .prepare(
@@ -975,25 +1191,28 @@ export function getWeeklyInventoryStats(): WeeklyInventoryStats {
               SUM(l.quantity) AS quantity
        FROM inventory_logs l
        JOIN products p ON p.id = l.product_id
-       WHERE l.type = 'in' AND datetime(l.created_at) >= ${WEEK_START_SQL}
+       WHERE l.type = 'in'
+         AND date(l.created_at) >= date(?)
+         AND date(l.created_at) <= date(?)
        GROUP BY l.product_id
        ORDER BY quantity DESC
        LIMIT 8`
     )
-    .all() as WeeklyOutboundRow[]
+    .all(s, e) as WeeklyOutboundRow[]
 
   const topInboundRemarks = db
     .prepare(
       `SELECT l.remark AS remark, COUNT(*) AS count
        FROM inventory_logs l
        WHERE l.type = 'in'
-         AND datetime(l.created_at) >= ${WEEK_START_SQL}
+         AND date(l.created_at) >= date(?)
+         AND date(l.created_at) <= date(?)
          AND TRIM(COALESCE(l.remark, '')) != ''
        GROUP BY l.remark
        ORDER BY count DESC
        LIMIT 8`
     )
-    .all() as WeeklyInboundRemarkRow[]
+    .all(s, e) as WeeklyInboundRemarkRow[]
 
   return { topOutbound, topInbound, topInboundRemarks }
 }
