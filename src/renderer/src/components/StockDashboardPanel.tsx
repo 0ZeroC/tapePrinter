@@ -201,19 +201,19 @@ export default function StockDashboardPanel(): JSX.Element {
           }}
         >
           <HorizontalRankBars
-            title="出库量 TOP8（物料描述）"
+            title="出库量 TOP50（物料描述）"
             rows={outboundRows}
             barColor="#ff7875"
             valueSuffix="千"
           />
           <HorizontalRankBars
-            title="入库量 TOP8（物料描述）"
+            title="入库量 TOP50（物料描述）"
             rows={inboundRows}
             barColor="#52c41a"
             valueSuffix="千"
           />
           <HorizontalRankBars
-            title="入库备注频次 TOP8"
+            title="入库备注频次 TOP50"
             rows={remarkRows}
             barColor="#1890ff"
             valueSuffix="次"

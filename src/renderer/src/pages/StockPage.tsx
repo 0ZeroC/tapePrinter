@@ -17,7 +17,8 @@ import {
   UploadOutlined,
   DashboardOutlined,
   TableOutlined,
-  LineChartOutlined
+  LineChartOutlined,
+  TrophyOutlined
 } from '@ant-design/icons'
 import * as XLSX from 'xlsx'
 import ResizableTable from '../components/ResizableTable'
@@ -25,8 +26,9 @@ import { api, type InventoryWithProduct } from '../utils/api'
 import ImportInventoryModal from '../components/ImportInventoryModal'
 import StockDashboardPanel from '../components/StockDashboardPanel'
 import StockTrendPanel from '../components/StockTrendPanel'
+import StockOrderUsagePanel from '../components/StockOrderUsagePanel'
 
-type StockViewMode = 'dashboard' | 'table' | 'trend'
+type StockViewMode = 'dashboard' | 'table' | 'trend' | 'orderUsage'
 
 function StockPage(): JSX.Element {
   const [viewMode, setViewMode] = useState<StockViewMode>('table')
@@ -270,9 +272,35 @@ function StockPage(): JSX.Element {
           <span style={{ fontWeight: 600 }}>库存查询</span>
           <span style={{ fontSize: 12, color: '#888' }}>列表与修改</span>
         </div>
+        <div
+          role="button"
+          tabIndex={0}
+          onClick={() => setViewMode('orderUsage')}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') setViewMode('orderUsage')
+          }}
+          style={{
+            ...tileBase,
+            borderColor: viewMode === 'orderUsage' ? '#1677ff' : '#d9d9d9',
+            boxShadow: viewMode === 'orderUsage' ? '0 0 0 2px rgba(22, 119, 255, 0.2)' : undefined
+          }}
+        >
+          <TrophyOutlined style={{ fontSize: 32, color: '#1677ff' }} />
+          <span style={{ fontWeight: 600 }}>订单用量</span>
+          <span style={{ fontSize: 12, color: '#888' }}>配货前 50 名</span>
+        </div>
       </div>
 
-      {viewMode === 'table' ? (
+      {viewMode === 'orderUsage' ? (
+        <Card
+          size="small"
+          title="订单用量排名（配货单）"
+          style={{ flex: 1, overflow: 'auto', display: 'flex', flexDirection: 'column' }}
+          styles={{ body: { flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 } }}
+        >
+          <StockOrderUsagePanel inventoryList={inventoryList} />
+        </Card>
+      ) : viewMode === 'table' ? (
         <>
           <Card size="small" style={{ marginBottom: 16 }}>
             <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>

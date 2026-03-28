@@ -1181,7 +1181,7 @@ export function getInventoryRankingStats(startDate: string, endDate: string): We
          AND date(l.created_at) <= date(?)
        GROUP BY l.product_id
        ORDER BY quantity DESC
-       LIMIT 8`
+       LIMIT 50`
     )
     .all(s, e) as WeeklyOutboundRow[]
 
@@ -1196,7 +1196,7 @@ export function getInventoryRankingStats(startDate: string, endDate: string): We
          AND date(l.created_at) <= date(?)
        GROUP BY l.product_id
        ORDER BY quantity DESC
-       LIMIT 8`
+       LIMIT 50`
     )
     .all(s, e) as WeeklyOutboundRow[]
 
@@ -1210,7 +1210,7 @@ export function getInventoryRankingStats(startDate: string, endDate: string): We
          AND TRIM(COALESCE(l.remark, '')) != ''
        GROUP BY l.remark
        ORDER BY count DESC
-       LIMIT 8`
+       LIMIT 50`
     )
     .all(s, e) as WeeklyInboundRemarkRow[]
 
