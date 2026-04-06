@@ -24,6 +24,8 @@ interface LabelLargeProps {
   combinedItems?: CombinedLabelItem[]
   /** 拼箱标签的箱号，会显示在日期同一行后面，如 4# */
   boxNo?: number
+  /** 打包标签：大标签不显示订单号、工程名称（拼箱模式则隐藏首行订单+工程） */
+  hideOrderAndProject?: boolean
 }
 
 function LabelLarge({
@@ -37,7 +39,8 @@ function LabelLarge({
   projectNameFontSizePt,
   descFontSizePt,
   combinedItems,
-  boxNo
+  boxNo,
+  hideOrderAndProject
 }: LabelLargeProps): ReactElement {
   const displayCode = productCode ?? product.code
   const displayCombinedItems = combinedItems?.slice(0, 4) ?? []
@@ -61,6 +64,10 @@ function LabelLarge({
     () => (descFontSizePt && descFontSizePt > 0 ? descFontSizePt : 12.5),
     [descFontSizePt]
   )
+  const isPackingExpanded = useMemo(
+    () => Boolean(hideOrderAndProject && (!combinedItems || combinedItems.length === 0)),
+    [hideOrderAndProject, combinedItems]
+  )
 
   const qrContent = useMemo(
     () => String(displayCode ?? product?.code ?? '-').trim() || '-',
@@ -80,32 +87,36 @@ function LabelLarge({
         <div className="label-details">
           {combinedItems && combinedItems.length > 0 ? (
             <>
-              {/* 第二行：订单号 + 工程名称在同一文本流中，换行从左侧顶格开始 */}
-              <div className="label-row">
-                <span
-                  className="label-value"
-                  style={{
-                    whiteSpace: 'normal',
-                    wordBreak: 'break-all'
-                  }}
-                >
-                  <span
-                    style={{
-                      fontSize: `${orderFontSize}pt`
-                    }}
-                  >
-                    {orderNo || '-'}
-                  </span>
-                  {' '}
-                  <span
-                    style={{
-                      fontSize: `${projectFontSize}pt`
-                    }}
-                  >
-                    {projectName || '-'}
-                  </span>
-                </span>
-              </div>
+              {!hideOrderAndProject && (
+                <>
+                  {/* 第二行：订单号 + 工程名称在同一文本流中，换行从左侧顶格开始 */}
+                  <div className="label-row">
+                    <span
+                      className="label-value"
+                      style={{
+                        whiteSpace: 'normal',
+                        wordBreak: 'break-all'
+                      }}
+                    >
+                      <span
+                        style={{
+                          fontSize: `${orderFontSize}pt`
+                        }}
+                      >
+                        {orderNo || '-'}
+                      </span>
+                      {' '}
+                      <span
+                        style={{
+                          fontSize: `${projectFontSize}pt`
+                        }}
+                      >
+                        {projectName || '-'}
+                      </span>
+                    </span>
+                  </div>
+                </>
+              )}
               {/* 第四行：表头 “物料编码” “物料描述” “数量” */}
               <div className="label-row label-row-combined-header">
                 <span
@@ -212,44 +223,68 @@ function LabelLarge({
             </>
           ) : (
             <>
-              <div className="label-row">
-                <span className="label-field">订单号：</span>
-                <span className="label-value" style={{ fontSize: `${orderFontSize}pt` }}>
-                  {orderNo || '-'}
-                </span>
-              </div>
-              <div className="label-row">
-                <span className="label-field">工程名称：</span>
-                <span className="label-value" style={{ fontSize: `${projectFontSize}pt` }}>
-                  {projectName || '-'}
-                </span>
-              </div>
-              <div className="label-row">
+              {!hideOrderAndProject && (
+                <>
+                  <div className="label-row">
+                    <span className="label-field">订单号：</span>
+                    <span className="label-value" style={{ fontSize: `${orderFontSize}pt` }}>
+                      {orderNo || '-'}
+                    </span>
+                  </div>
+                  <div className="label-row">
+                    <span className="label-field">工程名称：</span>
+                    <span className="label-value" style={{ fontSize: `${projectFontSize}pt` }}>
+                      {projectName || '-'}
+                    </span>
+                  </div>
+                </>
+              )}
+              <div
+                className="label-row"
+                style={isPackingExpanded ? { marginBottom: '3.52mm', lineHeight: 1.71 } : undefined}
+              >
                 <span className="label-field">物料编码：</span>
-                <span className="label-value">{displayCode}</span>
+                <span
+                  className="label-value"
+                  style={isPackingExpanded ? { fontSize: '13.5pt' } : undefined}
+                >
+                  {displayCode}
+                </span>
               </div>
-              <div className="label-row label-row-desc">
+              <div
+                className="label-row label-row-desc"
+                style={isPackingExpanded ? { marginBottom: '3.52mm', lineHeight: 1.65 } : undefined}
+              >
                 <span className="label-field">物料描述：</span>
                 <span
                   className="label-value label-desc-value"
-                  style={{ fontSize: `${descFontSize}pt` }}
+                  style={{ fontSize: `${isPackingExpanded ? descFontSize + 1.5 : descFontSize}pt` }}
                 >
                   {product.description || '-'}
                 </span>
               </div>
               {quantity && (
-                <div className="label-row">
+                <div
+                  className="label-row"
+                  style={isPackingExpanded ? { marginBottom: '2.00mm', lineHeight: 1.71 } : undefined}
+                >
                   <span className="label-field">数　　量：</span>
-                  <span className="label-value" style={{ fontSize: '13.5pt' }}>
+                  <span
+                    className="label-value"
+                    style={{ fontSize: isPackingExpanded ? '16pt' : '13.5pt' }}
+                  >
                     {quantity} {unit || '只'}
                   </span>
                 </div>
               )}
-              <div className="label-row">
+              <div
+                className="label-row"
+                style={isPackingExpanded ? { marginBottom: 0, lineHeight: 1.65 } : undefined}
+              >
                 <span className="label-field">日　　期：</span>
                 <span
                   className="label-value"
-                  style={{ fontSize: '11.5pt', whiteSpace: 'nowrap' }}
+                  style={{ fontSize: isPackingExpanded ? '13.5pt' : '11.5pt', whiteSpace: 'nowrap' }}
                 >
                   {today}
                 </span>

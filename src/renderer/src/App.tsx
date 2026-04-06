@@ -26,7 +26,16 @@ import MergedDeliverySheetPage from './pages/MergedDeliverySheetPage'
 
 const { Sider, Content } = Layout
 
-type PageKey = 'print' | 'data' | 'stockIn' | 'stockOut' | 'stock' | 'users' | 'pickingOrder' | 'mergedDelivery'
+type PageKey =
+  | 'print'
+  | 'packingPrint'
+  | 'data'
+  | 'stockIn'
+  | 'stockOut'
+  | 'stock'
+  | 'users'
+  | 'pickingOrder'
+  | 'mergedDelivery'
 
 interface CombinedLabelItem {
   code: string
@@ -72,6 +81,7 @@ function App(): JSX.Element {
 
   const menuItems = [
     { key: 'print' as PageKey, icon: <PrinterOutlined />, label: '标签打印' },
+    { key: 'packingPrint' as PageKey, icon: <PrinterOutlined />, label: '打包标签' },
     ...(user.canViewInventory
       ? [
           { key: 'stockIn' as PageKey, icon: <ImportOutlined />, label: '入库' },
@@ -112,6 +122,8 @@ function App(): JSX.Element {
     switch (currentPage) {
       case 'print':
         return <PrintPage preset={printPreset} />
+      case 'packingPrint':
+        return <PrintPage preset={printPreset} mode="packing" />
       case 'stockIn':
         return user.canViewInventory ? <StockInPage /> : <PrintPage />
       case 'stockOut':

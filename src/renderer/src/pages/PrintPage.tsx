@@ -1,18 +1,5 @@
 import { useState, useRef, useCallback, useEffect, type ReactElement } from 'react'
-import {
-  Input,
-  Button,
-  InputNumber,
-  Radio,
-  Select,
-  Space,
-  Card,
-  message,
-  Divider,
-  Empty,
-  Typography,
-  Checkbox
-} from 'antd'
+import { Input, Button, InputNumber, Radio, Select, Space, Card, message, Divider, Empty, Typography, Checkbox } from 'antd'
 import { SearchOutlined, PrinterOutlined } from '@ant-design/icons'
 import ResizableTable from '../components/ResizableTable'
 import { api, type Product } from '../utils/api'
@@ -23,6 +10,7 @@ import '../styles/label-print.css'
 const { Title } = Typography
 
 type TemplateType = 'small' | 'large'
+type PrintPageMode = 'normal' | 'packing'
 type LabelExtraFontSize = 'mini' | 'small' | 'medium' | 'large'
 
 const LABEL_FONT_SIZE_MAP: Record<LabelExtraFontSize, number> = {
@@ -44,9 +32,11 @@ interface PrintPagePreset {
 
 interface PrintPageProps {
   preset?: PrintPagePreset | null
+  mode?: PrintPageMode
 }
 
-function PrintPage({ preset }: PrintPageProps): ReactElement {
+function PrintPage({ preset, mode = 'normal' }: PrintPageProps): ReactElement {
+  const isPackingMode = mode === 'packing'
   const [searchText, setSearchText] = useState('')
   const [searchResults, setSearchResults] = useState<Product[]>([])
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null)
@@ -114,7 +104,6 @@ function PrintPage({ preset }: PrintPageProps): ReactElement {
       const currentValue = searchTextRef.current.trim()
       if (currentValue) {
         void handleSearch(currentValue).finally(() => {
-          // 自动搜索后全选，下一次扫码可直接覆盖，不需要手动删除旧条码
           searchInputRef.current?.focus?.({ cursor: 'all' })
         })
       }
@@ -138,7 +127,6 @@ function PrintPage({ preset }: PrintPageProps): ReactElement {
       scanRapidKeyCountRef.current = elapsed <= 50 ? scanRapidKeyCountRef.current + 1 : 1
       scanLastKeyTsRef.current = now
 
-      // 扫码枪输入通常是连续快速击键，达到阈值后自动触发一次搜索
       if (scanRapidKeyCountRef.current >= 4) {
         scheduleScannerAutoSearch()
       }
@@ -149,13 +137,11 @@ function PrintPage({ preset }: PrintPageProps): ReactElement {
   useEffect(() => {
     if (!preset) return
 
-    // 处理来自配货单的“拼箱大标签”预设
     if (preset.combinedItems && preset.combinedItems.length > 0) {
       setCombinedItems(preset.combinedItems)
       setOrderNo(preset.orderNo ?? '')
       setProjectName(preset.projectName ?? '')
       setBoxNo(preset.boxNo)
-      // 拼箱标签只打印大标签，且默认不扣减库存
       setTemplateType('large')
       setSkipInventory(true)
     } else {
@@ -166,7 +152,6 @@ function PrintPage({ preset }: PrintPageProps): ReactElement {
     if (preset.productCode) {
       setSearchText(preset.productCode)
       setProductCode(preset.productCode)
-      // 自动按物料号搜索并选中
       handleSearch(preset.productCode)
     }
     if (preset.orderNo) {
@@ -178,15 +163,12 @@ function PrintPage({ preset }: PrintPageProps): ReactElement {
     if (typeof preset.quantity === 'number' && preset.quantity > 0) {
       setQuantity(preset.quantity)
     }
-    // 从配货单过来的普通打标签默认不扣减库存
     if (!preset.combinedItems || preset.combinedItems.length === 0) {
       setSkipInventory(true)
-      // 默认用大标签，显示订单号和工程名称
       setTemplateType('large')
     }
   }, [preset, handleSearch])
 
-  // 选中物品时自动填充物料编码（可编辑）
   useEffect(() => {
     if (selectedProduct) {
       setProductCode(selectedProduct.code)
@@ -195,7 +177,6 @@ function PrintPage({ preset }: PrintPageProps): ReactElement {
     }
   }, [selectedProduct])
 
-  // 标签模板切换时，描述字号自动跳转到对应默认值
   useEffect(() => {
     setLabelDescFontSize(templateType === 'small' ? 'mini' : 'medium')
   }, [templateType])
@@ -555,6 +536,7 @@ function PrintPage({ preset }: PrintPageProps): ReactElement {
                       descFontSizePt={LABEL_FONT_SIZE_MAP[labelDescFontSize]}
                       combinedItems={combinedItems || undefined}
                       boxNo={combinedItems ? boxNo : undefined}
+                      hideOrderAndProject={isPackingMode && templateType === 'large'}
                     />
                   )}
                 </div>
