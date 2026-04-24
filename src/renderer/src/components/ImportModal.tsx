@@ -55,6 +55,8 @@ function ImportModal({ visible, onSuccess, onCancel }: ImportModalProps): JSX.El
           row['物料号'] || row['物品编码'] || row['编码'] || row['code'] || row['Code'] || ''
         const description =
           row['物料描述'] || row['描述'] || row['description'] || row['Description'] || ''
+        const description_en =
+          row['英文描述'] || row['英文'] || row['description_en'] || row['Description EN'] || ''
         const name =
           row['物品名称'] || row['名称'] || row['name'] || row['Name'] || ''
         const spec =
@@ -75,6 +77,7 @@ function ImportModal({ visible, onSuccess, onCancel }: ImportModalProps): JSX.El
           _error: !valid ? '物料号或名称为空' : undefined,
           code: String(code).trim(),
           description: String(description).trim(),
+          description_en: String(description_en).trim(),
           name: String(name).trim(),
           spec: String(spec).trim(),
           grade: String(grade).trim(),
@@ -119,9 +122,10 @@ function ImportModal({ visible, onSuccess, onCancel }: ImportModalProps): JSX.El
     setImporting(true)
     try {
       const products: ProductData[] = validData.map(
-        ({ code, description, name, spec, grade, surface_treatment, material, special_note }) => ({
+        ({ code, description, description_en, name, spec, grade, surface_treatment, material, special_note }) => ({
           code,
           description,
+          description_en,
           name,
           spec,
           grade,
@@ -177,6 +181,13 @@ function ImportModal({ visible, onSuccess, onCancel }: ImportModalProps): JSX.El
       dataIndex: 'description',
       key: 'description',
       width: 200,
+      ellipsis: true
+    },
+    {
+      title: '英文描述',
+      dataIndex: 'description_en',
+      key: 'description_en',
+      width: 160,
       ellipsis: true
     },
     { title: '物品名称', dataIndex: 'name', key: 'name', width: 130 },

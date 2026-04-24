@@ -35,6 +35,7 @@ function ProductForm({
       form.setFieldsValue({
         code: product.code,
         description: product.description,
+        description_en: product.description_en,
         name: product.name,
         spec: product.spec,
         grade: product.grade,
@@ -122,11 +123,18 @@ function ProductForm({
           <Input placeholder="请输入物料号（唯一标识）" />
         </Form.Item>
         <Form.Item
-          label="物料描述"
+          label="物料描述（中文）"
           name="description"
           rules={[{ max: 500, message: '物料描述不能超过500个字符' }]}
         >
-          <Input placeholder="请输入物料描述" />
+          <Input placeholder="请输入物料描述（中文）" />
+        </Form.Item>
+        <Form.Item
+          label="英文描述"
+          name="description_en"
+          rules={[{ max: 500, message: '英文描述不能超过500个字符' }]}
+        >
+          <Input placeholder="双语大标签用，可空" />
         </Form.Item>
         <Form.Item
           label="物品名称"

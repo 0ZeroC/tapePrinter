@@ -12,6 +12,7 @@ import {
   deleteAllProducts,
   importProducts,
   getProductById,
+  getProductByCode,
   getProductDrawingAbsolutePath,
   listProductDrawings,
   addProductDrawingRecord,
@@ -287,6 +288,21 @@ router.get('/products/search', authMiddleware, (req, res) => {
   try {
     const q = (req.query.q as string) || ''
     res.json(ok(searchProducts(q)))
+  } catch (err) {
+    res.json(fail((err as Error).message))
+  }
+})
+
+router.get('/products/code/:code', authMiddleware, (req, res) => {
+  try {
+    const raw = req.params.code ?? ''
+    const code = typeof raw === 'string' ? decodeURIComponent(raw) : String(raw)
+    const p = getProductByCode(code)
+    if (!p) {
+      res.json(fail('未找到该物料'))
+      return
+    }
+    res.json(ok(p))
   } catch (err) {
     res.json(fail((err as Error).message))
   }

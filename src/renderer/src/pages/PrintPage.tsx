@@ -1,16 +1,17 @@
-import { useState, useRef, useCallback, useEffect, type ReactElement } from 'react'
+import { useState, useRef, useCallback, useEffect, useMemo, type ReactElement } from 'react'
 import { Input, Button, InputNumber, Radio, Select, Space, Card, message, Divider, Empty, Typography, Checkbox } from 'antd'
 import { SearchOutlined, PrinterOutlined } from '@ant-design/icons'
 import ResizableTable from '../components/ResizableTable'
 import { api, type Product } from '../utils/api'
 import LabelSmall from '../components/LabelSmall'
 import LabelLarge, { type CombinedLabelItem } from '../components/LabelLarge'
+import LabelLargeBilingual, { type BilingualLabelItem } from '../components/LabelLargeBilingual'
 import '../styles/label-print.css'
 
 const { Title } = Typography
 
 type TemplateType = 'small' | 'large'
-type PrintPageMode = 'normal' | 'packing'
+type PrintPageMode = 'normal' | 'packing' | 'bilingual'
 type LabelExtraFontSize = 'mini' | 'small' | 'medium' | 'large'
 
 const LABEL_FONT_SIZE_MAP: Record<LabelExtraFontSize, number> = {
@@ -20,13 +21,18 @@ const LABEL_FONT_SIZE_MAP: Record<LabelExtraFontSize, number> = {
   large: 14
 }
 
-interface PrintPagePreset {
+export interface PrintPagePreset {
   productCode?: string
   orderNo?: string
   projectName?: string
   quantity?: number
   unit?: string
   combinedItems?: CombinedLabelItem[]
+  /** 双语拼箱：2～3 条 */
+  bilingualCombinedItems?: BilingualLabelItem[]
+  /** 单行双语：配货行中文描述（优先于物料库描述） */
+  lineDescriptionZh?: string
+  lineDescriptionEn?: string
   boxNo?: number
 }
 
@@ -37,6 +43,7 @@ interface PrintPageProps {
 
 function PrintPage({ preset, mode = 'normal' }: PrintPageProps): ReactElement {
   const isPackingMode = mode === 'packing'
+  const isBilingualMode = mode === 'bilingual'
   const [searchText, setSearchText] = useState('')
   const [searchResults, setSearchResults] = useState<Product[]>([])
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null)
@@ -53,7 +60,12 @@ function PrintPage({ preset, mode = 'normal' }: PrintPageProps): ReactElement {
   const [loading, setLoading] = useState(false)
   const [printing, setPrinting] = useState(false)
   const [combinedItems, setCombinedItems] = useState<CombinedLabelItem[] | null>(null)
+  const [bilingualCombinedItems, setBilingualCombinedItems] = useState<BilingualLabelItem[] | null>(null)
+  const [bilingualZh, setBilingualZh] = useState('')
+  const initialZhFromPresetRef = useRef<string | null>(null)
+  const initialEnFromPresetRef = useRef(false)
   const [boxNo, setBoxNo] = useState<number | undefined>(undefined)
+  const [descriptionEn, setDescriptionEn] = useState('')
   const searchInputRef = useRef<any>(null)
   const searchTextRef = useRef('')
   const scanRapidKeyCountRef = useRef(0)
@@ -135,24 +147,63 @@ function PrintPage({ preset, mode = 'normal' }: PrintPageProps): ReactElement {
   )
 
   useEffect(() => {
-    if (!preset) return
+    if (isBilingualMode) {
+      setTemplateType('large')
+    } else {
+      setBilingualCombinedItems(null)
+    }
+  }, [isBilingualMode])
 
-    if (preset.combinedItems && preset.combinedItems.length > 0) {
+  useEffect(() => {
+    if (!preset) {
+      initialZhFromPresetRef.current = null
+      initialEnFromPresetRef.current = false
+      return
+    }
+
+    if (isBilingualMode && preset.bilingualCombinedItems && preset.bilingualCombinedItems.length > 0) {
+      setBilingualCombinedItems(preset.bilingualCombinedItems)
+      setCombinedItems(null)
+      setOrderNo(preset.orderNo ?? '')
+      setProjectName(preset.projectName ?? '')
+      setBoxNo(preset.boxNo)
+      setSkipInventory(true)
+      setTemplateType('large')
+    } else if (isBilingualMode) {
+      setBilingualCombinedItems(null)
+    }
+
+    if (!isBilingualMode && preset.combinedItems && preset.combinedItems.length > 0) {
       setCombinedItems(preset.combinedItems)
       setOrderNo(preset.orderNo ?? '')
       setProjectName(preset.projectName ?? '')
       setBoxNo(preset.boxNo)
       setTemplateType('large')
       setSkipInventory(true)
-    } else {
+    } else if (!isBilingualMode) {
       setCombinedItems(null)
-      setBoxNo(undefined)
+      if (!preset.bilingualCombinedItems) {
+        setBoxNo(undefined)
+      }
+    }
+
+    if (preset.lineDescriptionZh != null && String(preset.lineDescriptionZh).length > 0) {
+      initialZhFromPresetRef.current = String(preset.lineDescriptionZh)
+      setBilingualZh(String(preset.lineDescriptionZh))
+    } else if (isBilingualMode) {
+      initialZhFromPresetRef.current = null
+    }
+    if (preset.lineDescriptionEn != null && String(preset.lineDescriptionEn).length > 0) {
+      initialEnFromPresetRef.current = true
+      setDescriptionEn(String(preset.lineDescriptionEn))
+    } else {
+      initialEnFromPresetRef.current = false
     }
 
     if (preset.productCode) {
       setSearchText(preset.productCode)
       setProductCode(preset.productCode)
-      handleSearch(preset.productCode)
+      void handleSearch(preset.productCode)
     }
     if (preset.orderNo) {
       setOrderNo(preset.orderNo)
@@ -163,11 +214,13 @@ function PrintPage({ preset, mode = 'normal' }: PrintPageProps): ReactElement {
     if (typeof preset.quantity === 'number' && preset.quantity > 0) {
       setQuantity(preset.quantity)
     }
-    if (!preset.combinedItems || preset.combinedItems.length === 0) {
+    if (!isBilingualMode && (!preset.combinedItems || preset.combinedItems.length === 0)) {
       setSkipInventory(true)
-      setTemplateType('large')
+      if (!preset.bilingualCombinedItems) {
+        setTemplateType('large')
+      }
     }
-  }, [preset, handleSearch])
+  }, [preset, handleSearch, isBilingualMode])
 
   useEffect(() => {
     if (selectedProduct) {
@@ -178,10 +231,69 @@ function PrintPage({ preset, mode = 'normal' }: PrintPageProps): ReactElement {
   }, [selectedProduct])
 
   useEffect(() => {
+    if (!isBilingualMode || !selectedProduct) {
+      return
+    }
+    if (initialZhFromPresetRef.current == null) {
+      setBilingualZh(selectedProduct.description || '')
+    }
+    if (!initialEnFromPresetRef.current) {
+      setDescriptionEn(selectedProduct.description_en ?? '')
+    }
+  }, [selectedProduct, isBilingualMode])
+
+  useEffect(() => {
     setLabelDescFontSize(templateType === 'small' ? 'mini' : 'medium')
   }, [templateType])
 
   const handlePrint = useCallback(async () => {
+    if (isBilingualMode) {
+      const qtyForDeduct =
+        bilingualCombinedItems && bilingualCombinedItems.length > 0
+          ? bilingualCombinedItems[0].quantity
+          : quantity
+      const productForDeduct = selectedProduct
+      if (!productForDeduct) {
+        message.warning('请先选择或加载主物料后再打印')
+        return
+      }
+      if (qtyForDeduct < 1) {
+        message.warning('请输入有效的数量')
+        return
+      }
+      setPrinting(true)
+      try {
+        const deductResult = await api.printAndDeduct(
+          productForDeduct.id,
+          qtyForDeduct,
+          1,
+          'large',
+          skipInventory
+        )
+        if (!deductResult.success) {
+          message.error(deductResult.error || '记录打印失败')
+          return
+        }
+        if (window.electronAPI?.printLabel) {
+          await window.electronAPI.printLabel('large')
+        } else {
+          window.print()
+        }
+        const totalPieces = qtyForDeduct
+        const deductThousands = totalPieces / 1000
+        message.success(
+          skipInventory
+            ? '打印任务已发送（未扣减库存）'
+            : `打印任务已发送，库存已扣减 ${deductThousands}千（${totalPieces}只）`
+        )
+      } catch {
+        message.error('打印出错')
+      } finally {
+        setPrinting(false)
+      }
+      return
+    }
+
     if (!selectedProduct) {
       message.warning('请先选择要打印的物品')
       return
@@ -220,7 +332,14 @@ function PrintPage({ preset, mode = 'normal' }: PrintPageProps): ReactElement {
     } finally {
       setPrinting(false)
     }
-  }, [selectedProduct, quantity, templateType, skipInventory])
+  }, [
+    isBilingualMode,
+    bilingualCombinedItems,
+    selectedProduct,
+    quantity,
+    templateType,
+    skipInventory
+  ])
 
   const fetchProjectNameByOrderNo = useCallback(
     async (value: string) => {
@@ -257,6 +376,36 @@ function PrintPage({ preset, mode = 'normal' }: PrintPageProps): ReactElement {
     },
     [setProjectName]
   )
+
+  const previewProduct: Product | null = useMemo(() => {
+    if (selectedProduct) {
+      return selectedProduct
+    }
+    const first = bilingualCombinedItems?.[0]
+    if (first) {
+      return {
+        id: 0,
+        code: first.productCode,
+        description: '',
+        name: '—',
+        spec: '',
+        grade: '',
+        surface_treatment: '',
+        material: '',
+        special_note: '',
+        description_en: first.descriptionEn,
+        drawings_count: 0,
+        created_at: '',
+        updated_at: ''
+      }
+    }
+    return null
+  }, [selectedProduct, bilingualCombinedItems])
+
+  const showLabelWorkspace = Boolean(
+    selectedProduct || (isBilingualMode && (bilingualCombinedItems?.length ?? 0) > 0)
+  )
+  const effectivePrintQty = bilingualCombinedItems?.[0]?.quantity ?? quantity
 
   const columns = [
     { title: '物料编码', dataIndex: 'code', key: 'code', width: 140 },
@@ -314,7 +463,9 @@ function PrintPage({ preset, mode = 'normal' }: PrintPageProps): ReactElement {
           </Button>
         </Space.Compact>
         <div style={{ marginTop: 8, color: '#999', fontSize: 12 }}>
-          提示：将光标放在搜索框内，使用扫码枪扫描条码可自动搜索
+          {isBilingualMode
+            ? '提示：双语标签仅使用大标签；中文行可来自配货或物料库，英文行来自物料库「英文描述」'
+            : '提示：将光标放在搜索框内，使用扫码枪扫描条码可自动搜索'}
         </div>
       </Card>
 
@@ -322,9 +473,9 @@ function PrintPage({ preset, mode = 'normal' }: PrintPageProps): ReactElement {
         size="small"
         title={`搜索结果 ${searchResults.length > 0 ? `(${searchResults.length} 条)` : ''}`}
         style={{
-          marginBottom: selectedProduct ? 16 : 0,
-          flex: selectedProduct ? 'none' : 1,
-          minHeight: selectedProduct ? undefined : 0,
+          marginBottom: showLabelWorkspace ? 16 : 0,
+          flex: showLabelWorkspace ? 'none' : 1,
+          minHeight: showLabelWorkspace ? undefined : 0,
           overflow: 'hidden',
           display: 'flex',
           flexDirection: 'column'
@@ -337,7 +488,7 @@ function PrintPage({ preset, mode = 'normal' }: PrintPageProps): ReactElement {
           rowKey="id"
           size="small"
           pagination={false}
-          scroll={{ y: selectedProduct ? 200 : 'calc(100vh - 300px)' }}
+          scroll={{ y: showLabelWorkspace ? 200 : 'calc(100vh - 300px)' }}
           loading={loading}
           locale={{ emptyText: <Empty description="暂无搜索结果" /> }}
           onRow={(record) => ({
@@ -350,12 +501,15 @@ function PrintPage({ preset, mode = 'normal' }: PrintPageProps): ReactElement {
         />
       </Card>
 
-      {selectedProduct && (
+      {showLabelWorkspace && previewProduct && (
         <div style={{ display: 'flex', gap: 16, flex: 1, minHeight: 0 }}>
           <Card size="small" style={{ flex: 1, overflow: 'auto' }}>
             <Title level={5} style={{ marginTop: 0 }}>
-              已选物品：{selectedProduct.name}（{selectedProduct.code}）
+              {isBilingualMode
+                ? `双语大标签：${selectedProduct ? `${selectedProduct.name}（${selectedProduct.code}）` : `编码 ${bilingualCombinedItems?.[0]?.productCode ?? ''}（未在库中，请搜索）`}`
+                : `已选物品：${selectedProduct!.name}（${selectedProduct!.code}）`}
             </Title>
+            {selectedProduct && !isBilingualMode && (
             <Space size="large" wrap style={{ marginBottom: 16 }}>
               <div>
                 <span style={{ color: '#666' }}>规格：</span>
@@ -376,8 +530,15 @@ function PrintPage({ preset, mode = 'normal' }: PrintPageProps): ReactElement {
                 </div>
               )}
             </Space>
-            <Divider style={{ margin: '12px 0' }} />
+            )}
+            {isBilingualMode && (bilingualCombinedItems?.length ?? 0) > 0 && (
+              <div style={{ color: '#666', marginBottom: 12, fontSize: 13 }}>
+                已载入中英文拼箱 {bilingualCombinedItems!.length} 行；数量在配货单拼箱时填写。
+              </div>
+            )}
+            {((selectedProduct && !isBilingualMode) || (isBilingualMode && (bilingualCombinedItems?.length ?? 0) === 0)) && <Divider style={{ margin: '12px 0' }} />}
             <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+              {(!isBilingualMode || (bilingualCombinedItems?.length ?? 0) === 0) && (
               <div style={{ display: 'flex', alignItems: 'center' }}>
                 <span style={{ marginRight: 8, fontWeight: 500 }}>物品数量：</span>
                 <InputNumber
@@ -399,6 +560,8 @@ function PrintPage({ preset, mode = 'normal' }: PrintPageProps): ReactElement {
                 />
                 <span style={{ marginLeft: 6, color: '#999', fontSize: 12 }}>（显示在标签上）</span>
               </div>
+              )}
+              {!isBilingualMode && (
               <div>
                 <span style={{ marginRight: 8, fontWeight: 500 }}>标签模板：</span>
                 <Radio.Group
@@ -409,6 +572,31 @@ function PrintPage({ preset, mode = 'normal' }: PrintPageProps): ReactElement {
                   <Radio.Button value="large">大标签(箱)</Radio.Button>
                 </Radio.Group>
               </div>
+              )}
+              {isBilingualMode && (bilingualCombinedItems?.length ?? 0) === 0 && (
+                <>
+                  <div style={{ display: 'flex', alignItems: 'flex-start' }}>
+                    <span style={{ marginRight: 8, fontWeight: 500, minWidth: 80 }}>中文行：</span>
+                    <Input.TextArea
+                      value={bilingualZh}
+                      onChange={(e) => setBilingualZh(e.target.value)}
+                      rows={2}
+                      placeholder="默认来自物料「物料描述」；从配货进入时已带入配货行"
+                      style={{ flex: 1 }}
+                    />
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'flex-start' }}>
+                    <span style={{ marginRight: 8, fontWeight: 500, minWidth: 80 }}>英文行：</span>
+                    <Input.TextArea
+                      value={descriptionEn}
+                      onChange={(e) => setDescriptionEn(e.target.value)}
+                      rows={2}
+                      placeholder="来自物料库「英文描述」，可改"
+                      style={{ flex: 1 }}
+                    />
+                  </div>
+                </>
+              )}
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                 <div style={{ display: 'flex', alignItems: 'center' }}>
                   <span style={{ marginRight: 8, fontWeight: 500 }}>物料编码：</span>
@@ -495,18 +683,25 @@ function PrintPage({ preset, mode = 'normal' }: PrintPageProps): ReactElement {
                   不计入库存（勾选后打印不扣减库存）
                 </Checkbox>
               </div>
-              {!skipInventory && <div style={{ color: '#999', fontSize: 12, marginBottom: 8 }}>库存扣减：{quantity}只 = {quantity / 1000}千</div>}
+              {!skipInventory && (
+                <div style={{ color: '#999', fontSize: 12, marginBottom: 8 }}>
+                  库存扣减：{effectivePrintQty} 只 = {effectivePrintQty / 1000} 千
+                </div>
+              )}
               <Button
                 type="primary"
                 icon={<PrinterOutlined />}
                 size="large"
                 onClick={handlePrint}
                 loading={printing}
+                disabled={isBilingualMode && (bilingualCombinedItems?.length ?? 0) > 0 && !selectedProduct}
                 block
               >
-                {skipInventory
-                  ? '打印标签（不扣减库存）'
-                  : `打印标签并扣减库存 ${quantity / 1000}千`}
+                {isBilingualMode && (bilingualCombinedItems?.length ?? 0) > 0 && !selectedProduct
+                  ? '请搜索并选中主物料后再打印'
+                  : skipInventory
+                    ? '打印标签（不扣减库存）'
+                    : `打印标签并扣减库存 ${effectivePrintQty / 1000}千`}
               </Button>
             </Space>
           </Card>
@@ -515,7 +710,27 @@ function PrintPage({ preset, mode = 'normal' }: PrintPageProps): ReactElement {
             <div className="print-area">
               <div className="label-preview-container">
                 <div key="single-label" className="label-preview-item">
-                  {templateType === 'small' ? (
+                  {isBilingualMode && previewProduct ? (
+                    <LabelLargeBilingual
+                      product={previewProduct}
+                      productCode={productCode}
+                      orderNo={orderNo}
+                      projectName={projectName}
+                      orderNoFontSizePt={LABEL_FONT_SIZE_MAP[orderNoFontSize]}
+                      projectNameFontSizePt={LABEL_FONT_SIZE_MAP[projectNameFontSize]}
+                      descFontSizePt={LABEL_FONT_SIZE_MAP[labelDescFontSize]}
+                      combinedItems={
+                        bilingualCombinedItems && bilingualCombinedItems.length > 0
+                          ? bilingualCombinedItems
+                          : undefined
+                      }
+                      lineDescriptionZh={bilingualZh}
+                      lineDescriptionEn={descriptionEn}
+                      quantity={quantity}
+                      unit={unit}
+                      boxNo={boxNo}
+                    />
+                  ) : templateType === 'small' && selectedProduct ? (
                     <LabelSmall
                       product={selectedProduct}
                       productCode={productCode}
@@ -523,7 +738,7 @@ function PrintPage({ preset, mode = 'normal' }: PrintPageProps): ReactElement {
                       unit={unit}
                       descFontSizePt={LABEL_FONT_SIZE_MAP[labelDescFontSize]}
                     />
-                  ) : (
+                  ) : selectedProduct ? (
                     <LabelLarge
                       product={selectedProduct}
                       productCode={productCode}
@@ -538,7 +753,7 @@ function PrintPage({ preset, mode = 'normal' }: PrintPageProps): ReactElement {
                       boxNo={combinedItems ? boxNo : undefined}
                       hideOrderAndProject={isPackingMode && templateType === 'large'}
                     />
-                  )}
+                  ) : null}
                 </div>
               </div>
             </div>

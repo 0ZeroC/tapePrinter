@@ -38,6 +38,7 @@ import fallbackLogoUrl from '../assets/logo.png'
 import ResizableTable from '../components/ResizableTable'
 import { api, type PickingOrderItem, type Product, type PickingSplitRow, type PickingOrderSummary } from '../utils/api'
 import { useAuth } from '../contexts/AuthContext'
+import type { PrintPagePreset } from './PrintPage'
 
 const { Text } = Typography
 const DELIVERY_NOTE_TITLE = '扬州硕瑞机电有限公司 送货单'
@@ -512,6 +513,7 @@ interface PickingOrderPageProps {
     combinedItems?: CombinedLabelItem[]
     boxNo?: number
   }) => void
+  onOpenBilingualLabel?: (payload: PrintPagePreset) => void
   initialOrderNo?: string
   onOrderLoaded?: (orderNo: string) => void
 }
@@ -555,7 +557,12 @@ const buildBarcodeDataUrl = (value: string): string => {
   return canvas.toDataURL('image/png')
 }
 
-function PickingOrderPage({ onOpenPrintLabel, initialOrderNo, onOrderLoaded }: PickingOrderPageProps): JSX.Element {
+function PickingOrderPage({
+  onOpenPrintLabel,
+  onOpenBilingualLabel,
+  initialOrderNo,
+  onOrderLoaded
+}: PickingOrderPageProps): JSX.Element {
   const { user } = useAuth()
   // 只有具有“查看库存”权限的用户，才允许在配货单中进行新增、编辑、删除等管理操作
   const canManage = user?.canViewInventory ?? false
@@ -603,6 +610,7 @@ function PickingOrderPage({ onOpenPrintLabel, initialOrderNo, onOrderLoaded }: P
 
   // Combine label modal
   const [combineModalOpen, setCombineModalOpen] = useState(false)
+  const [combineModalForBilingual, setCombineModalForBilingual] = useState(false)
   const [combineItems, setCombineItems] = useState<PickingOrderItem[]>([])
   const [combineCodeMap, setCombineCodeMap] = useState<Record<number, string>>({})
   const [combineQtyMap, setCombineQtyMap] = useState<Record<number, number>>({})
@@ -1586,6 +1594,27 @@ function PickingOrderPage({ onOpenPrintLabel, initialOrderNo, onOrderLoaded }: P
     [onOpenPrintLabel]
   )
 
+  const handleOpenBilingualLabelRow = useCallback(
+    async (record: PickingOrderItem) => {
+      if (!onOpenBilingualLabel) {
+        message.warning('当前环境不支持双语标签跳转')
+        return
+      }
+      const res = await api.getProductByCode(record.product_code.trim())
+      const en = res.success && res.data ? (res.data.description_en?.trim() ?? '') : ''
+      onOpenBilingualLabel({
+        productCode: record.product_code,
+        orderNo: record.order_no,
+        projectName: record.project_name,
+        quantity: record.quantity,
+        unit: record.unit || '只',
+        lineDescriptionZh: record.description || record.product_code,
+        lineDescriptionEn: en
+      })
+    },
+    [onOpenBilingualLabel]
+  )
+
   const handleOpenCombinedLabel = useCallback(() => {
     if (!onOpenPrintLabel) {
       message.warning('当前环境不支持打标签跳转')
@@ -1622,6 +1651,7 @@ function PickingOrderPage({ onOpenPrintLabel, initialOrderNo, onOrderLoaded }: P
       initialQty[item.id] = remaining > 0 ? remaining : item.quantity
       initialUnit[item.id] = (item.unit === '套' ? '套' : '只') as '只' | '套'
     })
+    setCombineModalForBilingual(false)
     setCombineItems(items)
     setCombineCodeMap(initialCode)
     setCombineQtyMap(initialQty)
@@ -1629,7 +1659,103 @@ function PickingOrderPage({ onOpenPrintLabel, initialOrderNo, onOrderLoaded }: P
     setCombineModalOpen(true)
   }, [onOpenPrintLabel, selectedIds, currentOrderNo, orderItems])
 
-  const handleConfirmCombinedModal = useCallback(() => {
+  const handleOpenBilingualCombined = useCallback(() => {
+    if (!onOpenBilingualLabel) {
+      message.warning('当前环境不支持双语标签跳转')
+      return
+    }
+    if (selectedIds.length === 0) {
+      message.warning('请先勾选要拼箱的物料')
+      return
+    }
+    if (selectedIds.length < 2 || selectedIds.length > 3) {
+      message.warning('中英文拼箱目前仅支持同时选择 2～3 个物料')
+      return
+    }
+    if (!currentOrderNo) {
+      message.warning('请先查询并加载配货单')
+      return
+    }
+    const items = selectedIds
+      .map((id) => orderItems.find((i) => i.id === id))
+      .filter((i): i is PickingOrderItem => !!i)
+
+    if (items.length < 2 || items.length > 3 || items.length !== selectedIds.length) {
+      message.error('选中的物料数据有误，请重新选择')
+      return
+    }
+
+    const initialCode: Record<number, string> = {}
+    const initialQty: Record<number, number> = {}
+    const initialUnit: Record<number, '只' | '套'> = {}
+    items.forEach((item) => {
+      initialCode[item.id] = item.product_code
+      const remaining = item.quantity - (item.picked_quantity ?? 0)
+      initialQty[item.id] = remaining > 0 ? remaining : item.quantity
+      initialUnit[item.id] = (item.unit === '套' ? '套' : '只') as '只' | '套'
+    })
+    setCombineModalForBilingual(true)
+    setCombineItems(items)
+    setCombineCodeMap(initialCode)
+    setCombineQtyMap(initialQty)
+    setCombineUnitMap(initialUnit)
+    setCombineModalOpen(true)
+  }, [onOpenBilingualLabel, selectedIds, currentOrderNo, orderItems])
+
+  const handleConfirmCombinedModal = useCallback(async () => {
+    if (combineModalForBilingual) {
+      if (!onOpenBilingualLabel) {
+        message.warning('当前环境不支持双语标签跳转')
+        return
+      }
+      if (!currentOrderNo || combineItems.length < 2) {
+        message.error('拼箱数据有误，请重新选择（至少需要 2 个物料）')
+        return
+      }
+      const withProject = combineItems.map((item) => {
+        const code = (combineCodeMap[item.id] ?? item.product_code).trim()
+        const qty = combineQtyMap[item.id] ?? item.quantity
+        const unit = combineUnitMap[item.id] ?? '只'
+        return {
+          code,
+          description: item.description || item.product_code,
+          quantity: qty > 0 ? qty : item.quantity,
+          unit,
+          projectName: item.project_name
+        }
+      })
+      if (withProject.some((it) => !it.quantity || it.quantity <= 0)) {
+        message.warning('请为每个物料输入大于 0 的数量')
+        return
+      }
+      const bilingualCombinedItems: NonNullable<PrintPagePreset['bilingualCombinedItems']> = []
+      for (const row of withProject) {
+        const res = await api.getProductByCode(row.code)
+        const en = res.success && res.data ? (res.data.description_en?.trim() ?? '') : ''
+        bilingualCombinedItems.push({
+          productCode: row.code,
+          descriptionZh: row.description,
+          descriptionEn: en,
+          quantity: row.quantity,
+          unit: row.unit
+        })
+      }
+      const first = bilingualCombinedItems[0]
+      const firstWithCode = withProject[0]
+      onOpenBilingualLabel({
+        productCode: first?.productCode ?? combineItems[0]?.product_code ?? '',
+        orderNo: currentOrderNo,
+        projectName: firstWithCode?.projectName ?? combineItems[0]?.project_name ?? '',
+        quantity: first?.quantity ?? 0,
+        unit: first?.unit ?? '只',
+        bilingualCombinedItems,
+        boxNo: combineBoxNo != null && combineBoxNo > 0 ? combineBoxNo : undefined
+      })
+      setCombineModalOpen(false)
+      setCombineModalForBilingual(false)
+      return
+    }
+
     if (!onOpenPrintLabel) {
       message.warning('当前环境不支持打标签跳转')
       return
@@ -1654,7 +1780,6 @@ function PickingOrderPage({ onOpenPrintLabel, initialOrderNo, onOrderLoaded }: P
       ({ projectName: _, ...rest }) => rest
     )
 
-    // 校验数量必须大于 0
     if (combinedItems.some((it) => !it.quantity || it.quantity <= 0)) {
       message.warning('请为每个物料输入大于 0 的数量')
       return
@@ -1673,7 +1798,17 @@ function PickingOrderPage({ onOpenPrintLabel, initialOrderNo, onOrderLoaded }: P
       boxNo: combineBoxNo != null && combineBoxNo > 0 ? combineBoxNo : undefined
     })
     setCombineModalOpen(false)
-  }, [onOpenPrintLabel, currentOrderNo, combineItems, combineCodeMap, combineQtyMap, combineUnitMap, combineBoxNo])
+  }, [
+    combineModalForBilingual,
+    onOpenBilingualLabel,
+    onOpenPrintLabel,
+    currentOrderNo,
+    combineItems,
+    combineCodeMap,
+    combineQtyMap,
+    combineUnitMap,
+    combineBoxNo
+  ])
 
   const handleCombineCodeChange = useCallback((itemId: number, value: string) => {
     setCombineCodeMap((prev) => ({ ...prev, [itemId]: value }))
@@ -1915,6 +2050,15 @@ function PickingOrderPage({ onOpenPrintLabel, initialOrderNo, onOrderLoaded }: P
             >
               打标签
             </Button>
+            {onOpenBilingualLabel && (
+              <Button
+                type="link"
+                size="small"
+                onClick={() => void handleOpenBilingualLabelRow(record)}
+              >
+                双语标签
+              </Button>
+            )}
           </Space>
         </Space>
       )
@@ -2075,6 +2219,16 @@ function PickingOrderPage({ onOpenPrintLabel, initialOrderNo, onOrderLoaded }: P
           >
             拼箱
           </Button>
+          {onOpenBilingualLabel && (
+            <Button
+              type="primary"
+              size="large"
+              onClick={handleOpenBilingualCombined}
+              disabled={orderItems.length === 0}
+            >
+              中英文拼箱
+            </Button>
+          )}
           {canOutbound && (
             <Button
               size="large"
@@ -2709,17 +2863,22 @@ function PickingOrderPage({ onOpenPrintLabel, initialOrderNo, onOrderLoaded }: P
 
       {/* Combine label quantity modal */}
       <Modal
-        title="拼箱数量设置"
+        title={combineModalForBilingual ? '中英文拼箱数量设置' : '拼箱数量设置'}
         open={combineModalOpen}
-        onCancel={() => setCombineModalOpen(false)}
-        onOk={handleConfirmCombinedModal}
-        okText="跳转打印大标签"
+        onCancel={() => {
+          setCombineModalOpen(false)
+          setCombineModalForBilingual(false)
+        }}
+        onOk={() => void handleConfirmCombinedModal()}
+        okText={combineModalForBilingual ? '跳转双语大标签' : '跳转打印大标签'}
         cancelText="取消"
         destroyOnClose
       >
         <div style={{ marginTop: 8 }}>
           <div style={{ marginBottom: 8, fontSize: 12, color: '#666' }}>
-            可编辑物料编码（支持清空后重新输入），选择数量及单位（套/只），可填写箱号（如 4 表示 4 号箱，会打印为 4#），然后点击「跳转打印大标签」。
+            {combineModalForBilingual
+              ? '中英文拼箱：中文行为配货行描述，英文行从物料库「英文描述」拉取。可编辑编码、数量、单位及箱号，然后点击「跳转双语大标签」。'
+              : '可编辑物料编码（支持清空后重新输入），选择数量及单位（套/只），可填写箱号（如 4 表示 4 号箱，会打印为 4#），然后点击「跳转打印大标签」。'}
           </div>
           <div
             style={{

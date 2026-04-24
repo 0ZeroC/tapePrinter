@@ -15,7 +15,7 @@ import {
 import { useAuth } from './contexts/AuthContext'
 import { api } from './utils/api'
 import LoginPage from './pages/LoginPage'
-import PrintPage from './pages/PrintPage'
+import PrintPage, { type PrintPagePreset } from './pages/PrintPage'
 import DataPage from './pages/DataPage'
 import StockInPage from './pages/StockInPage'
 import StockOutPage from './pages/StockOutPage'
@@ -29,6 +29,7 @@ const { Sider, Content } = Layout
 type PageKey =
   | 'print'
   | 'packingPrint'
+  | 'bilingualPrint'
   | 'data'
   | 'stockIn'
   | 'stockOut'
@@ -44,16 +45,6 @@ interface CombinedLabelItem {
   unit?: string
 }
 
-interface PrintPreset {
-  productCode?: string
-  orderNo?: string
-  projectName?: string
-  quantity?: number
-  unit?: string
-  combinedItems?: CombinedLabelItem[]
-  boxNo?: number
-}
-
 function App(): JSX.Element {
   const { user, loading, logout } = useAuth()
   const [currentPage, setCurrentPage] = useState<PageKey>('print')
@@ -61,7 +52,7 @@ function App(): JSX.Element {
   const [pwdModalOpen, setPwdModalOpen] = useState(false)
   const [pwdForm] = Form.useForm()
   const [pwdLoading, setPwdLoading] = useState(false)
-  const [printPreset, setPrintPreset] = useState<PrintPreset | null>(null)
+  const [printPreset, setPrintPreset] = useState<PrintPagePreset | null>(null)
   const [lastPickingOrderNo, setLastPickingOrderNo] = useState<string>('')
   const {
     token: { colorBgContainer, borderRadiusLG }
@@ -82,6 +73,7 @@ function App(): JSX.Element {
   const menuItems = [
     { key: 'print' as PageKey, icon: <PrinterOutlined />, label: '标签打印' },
     { key: 'packingPrint' as PageKey, icon: <PrinterOutlined />, label: '打包标签' },
+    { key: 'bilingualPrint' as PageKey, icon: <PrinterOutlined />, label: '双语标签' },
     ...(user.canViewInventory
       ? [
           { key: 'stockIn' as PageKey, icon: <ImportOutlined />, label: '入库' },
@@ -114,6 +106,11 @@ function App(): JSX.Element {
     setCurrentPage('print')
   }
 
+  const handleOpenBilingualFromPicking = (payload: PrintPagePreset): void => {
+    setPrintPreset(payload)
+    setCurrentPage('bilingualPrint')
+  }
+
   const handlePickingOrderLoaded = (orderNo: string): void => {
     setLastPickingOrderNo(orderNo)
   }
@@ -124,6 +121,8 @@ function App(): JSX.Element {
         return <PrintPage preset={printPreset} />
       case 'packingPrint':
         return <PrintPage preset={printPreset} mode="packing" />
+      case 'bilingualPrint':
+        return <PrintPage preset={printPreset} mode="bilingual" />
       case 'stockIn':
         return user.canViewInventory ? <StockInPage /> : <PrintPage />
       case 'stockOut':
@@ -136,6 +135,7 @@ function App(): JSX.Element {
         return (
           <PickingOrderPage
             onOpenPrintLabel={handleOpenPrintFromPicking}
+            onOpenBilingualLabel={handleOpenBilingualFromPicking}
             initialOrderNo={lastPickingOrderNo}
             onOrderLoaded={handlePickingOrderLoaded}
           />

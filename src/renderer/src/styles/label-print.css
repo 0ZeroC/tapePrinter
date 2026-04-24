@@ -34,7 +34,8 @@
   /* 确保背景、边框在打印时可见 */
   .print-area,
   .print-area .label-small,
-  .print-area .label-large {
+  .print-area .label-large,
+  .print-area .label-large-bilingual {
     -webkit-print-color-adjust: exact !important;
     print-color-adjust: exact !important;
   }
@@ -66,7 +67,8 @@
 
   /* 打印时取消标签最外侧的框线 */
   .print-area .label-small,
-  .print-area .label-large {
+  .print-area .label-large,
+  .print-area .label-large-bilingual {
     border: none !important;
   }
 
@@ -81,7 +83,8 @@
   .print-area .label-small {
     page: small-label;
   }
-  .print-area .label-large {
+  .print-area .label-large,
+  .print-area .label-large-bilingual {
     page: large-label;
   }
 
@@ -90,15 +93,18 @@
    * 通过描边 + 纯黑 + 可选微阴影，让文字在打印时也“喷够量”。
    */
   .print-area .label-small,
-  .print-area .label-large {
+  .print-area .label-large,
+  .print-area .label-large-bilingual {
     color: #000 !important;
   }
   .print-area .label-small *,
-  .print-area .label-large * {
+  .print-area .label-large *,
+  .print-area .label-large-bilingual * {
     color: inherit;
   }
   /* 大标签标题加粗，小标签标题按需求不加粗 */
-  .print-area .label-large .label-title {
+  .print-area .label-large .label-title,
+  .print-area .label-large-bilingual .label-title {
     font-weight: 700 !important;
     -webkit-text-stroke: 0.02em #000;
     text-stroke: 0.02em #000;
@@ -124,7 +130,11 @@
   .print-area .label-large .label-row,
   .print-area .label-large .label-field,
   .print-area .label-large .label-value,
-  .print-area .label-large .label-desc-value {
+  .print-area .label-large .label-desc-value,
+  .print-area .label-large-bilingual .label-row,
+  .print-area .label-large-bilingual .label-field,
+  .print-area .label-large-bilingual .label-value,
+  .print-area .label-large-bilingual .label-desc-value {
     font-weight: 400 !important;
     -webkit-text-stroke: 0.02em #000;
     text-stroke: 0.02em #000;
@@ -140,7 +150,9 @@
   .print-area .label-small .label-logo,
   .print-area .label-small .label-stamp,
   .print-area .label-large .label-logo,
-  .print-area .label-large .label-stamp {
+  .print-area .label-large .label-stamp,
+  .print-area .label-large-bilingual .label-logo,
+  .print-area .label-large-bilingual .label-stamp {
     -webkit-print-color-adjust: exact !important;
     print-color-adjust: exact !important;
     background: none !important;
@@ -148,7 +160,8 @@
     filter: contrast(1.4) brightness(0.78) saturate(1.2);
   }
   .print-area .label-small .label-qrcode svg,
-  .print-area .label-large .label-qrcode svg {
+  .print-area .label-large .label-qrcode svg,
+  .print-area .label-large-bilingual .label-qrcode svg {
     -webkit-print-color-adjust: exact !important;
     print-color-adjust: exact !important;
   }

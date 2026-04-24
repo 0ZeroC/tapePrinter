@@ -9,6 +9,8 @@ export interface ApiResponse<T = unknown> {
 export interface ProductData {
   code: string
   description: string
+  /** 英文描述，双语标签用；可空 */
+  description_en?: string
   name: string
   spec: string
   grade: string
@@ -307,6 +309,9 @@ export const api = {
     request<Product[]>(`/products/search?q=${encodeURIComponent(query)}`),
 
   getAllProducts: () => request<Product[]>('/products'),
+
+  getProductByCode: (code: string) =>
+    request<Product>(`/products/code/${encodeURIComponent(code)}`),
 
   createProduct: (product: ProductData) =>
     request<Product>('/products', { method: 'POST', body: JSON.stringify(product) }),

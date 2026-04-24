@@ -16,6 +16,8 @@ export interface Product {
   surface_treatment: string
   material: string
   special_note: string
+  /** 英文描述（用于双语大标签，可选） */
+  description_en?: string
   /** 图纸份数（由 product_drawings 汇总） */
   drawings_count: number
   created_at?: string
@@ -124,6 +126,7 @@ export function initDatabase(): void {
   addColumnIfMissing('products', 'description', "TEXT DEFAULT ''")
   addColumnIfMissing('products', 'material', "TEXT DEFAULT ''")
   addColumnIfMissing('products', 'special_note', "TEXT DEFAULT ''")
+  addColumnIfMissing('products', 'description_en', "TEXT DEFAULT ''")
   addColumnIfMissing('products', 'drawing_path', "TEXT DEFAULT ''")
 
   db.exec(`
@@ -180,8 +183,7 @@ export function initDatabase(): void {
       type TEXT NOT NULL,
       quantity INTEGER NOT NULL,
       remark TEXT DEFAULT '',
-      created_at TEXT DEFAULT (datetime('now', 'localtime')),
-      FOREIGN KEY (product_id) REFERENCES products(id)
+      created_at TEXT DEFAULT (datetime('now', 'localtime'))
     );
   `)
 
@@ -292,10 +294,58 @@ export function initDatabase(): void {
       label_type TEXT DEFAULT 'small',
       operator_id INTEGER,
       operator_name TEXT DEFAULT '',
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (product_id) REFERENCES products(id)
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
   `)
+
+  // 历史库可能仍带 products 外键；重建表以解除约束，便于「清空物品」时保留流水
+  const LOGS_DROP_PRODUCT_FK = 'inventory_print_logs_drop_product_fk_v1'
+  if (getMeta(LOGS_DROP_PRODUCT_FK) !== '1') {
+    try {
+      db.transaction(() => {
+        db.exec(`
+          CREATE TABLE inventory_logs_new (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            product_id INTEGER NOT NULL,
+            type TEXT NOT NULL,
+            quantity INTEGER NOT NULL,
+            remark TEXT DEFAULT '',
+            created_at TEXT DEFAULT (datetime('now', 'localtime')),
+            operator_id INTEGER DEFAULT NULL,
+            operator_name TEXT DEFAULT ''
+          );
+        `)
+        db.exec(`
+          INSERT INTO inventory_logs_new (id, product_id, type, quantity, remark, created_at, operator_id, operator_name)
+          SELECT id, product_id, type, quantity, remark, created_at, operator_id, operator_name FROM inventory_logs;
+        `)
+        db.exec('DROP TABLE inventory_logs;')
+        db.exec('ALTER TABLE inventory_logs_new RENAME TO inventory_logs;')
+
+        db.exec(`
+          CREATE TABLE print_logs_new (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            product_id INTEGER NOT NULL,
+            quantity INTEGER NOT NULL,
+            print_count INTEGER DEFAULT 1,
+            label_type TEXT DEFAULT 'small',
+            operator_id INTEGER,
+            operator_name TEXT DEFAULT '',
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+          );
+        `)
+        db.exec(`
+          INSERT INTO print_logs_new (id, product_id, quantity, print_count, label_type, operator_id, operator_name, created_at)
+          SELECT id, product_id, quantity, print_count, label_type, operator_id, operator_name, created_at FROM print_logs;
+        `)
+        db.exec('DROP TABLE print_logs;')
+        db.exec('ALTER TABLE print_logs_new RENAME TO print_logs;')
+      })()
+      setMeta(LOGS_DROP_PRODUCT_FK, '1')
+    } catch {
+      // ignore
+    }
+  }
 
   // Create default admin if no users exist
   const userCount = db.prepare('SELECT COUNT(*) as count FROM users').get() as { count: number }
@@ -422,7 +472,17 @@ export function searchProducts(query: string): Product[] {
   const keywords = query.trim().split(/\s+/).filter(Boolean)
   if (keywords.length === 0) return []
 
-  const fields = ['code', 'description', 'name', 'spec', 'grade', 'surface_treatment', 'material', 'special_note']
+  const fields = [
+    'code',
+    'description',
+    'description_en',
+    'name',
+    'spec',
+    'grade',
+    'surface_treatment',
+    'material',
+    'special_note'
+  ]
 
   function getVariants(kw: string): string[] {
     const variants = [kw]
@@ -469,16 +529,28 @@ export function getProductById(id: number): Product | undefined {
   return stmt.get(id) as Product | undefined
 }
 
+export function getProductByCode(code: string): Product | undefined {
+  const trimmed = (code || '').trim()
+  if (!trimmed) return undefined
+  const stmt = db.prepare(`
+    SELECT p.*,
+      CAST((SELECT COUNT(1) FROM product_drawings d WHERE d.product_id = p.id) AS INTEGER) AS drawings_count
+    FROM products p WHERE p.code = ?
+  `)
+  return stmt.get(trimmed) as Product | undefined
+}
+
 export function createProduct(
   product: Omit<Product, 'id' | 'created_at' | 'updated_at' | 'drawings_count'>
 ): Product {
   const stmt = db.prepare(`
-    INSERT INTO products (code, description, name, spec, grade, surface_treatment, material, special_note, drawing_path)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO products (code, description, description_en, name, spec, grade, surface_treatment, material, special_note, drawing_path)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `)
   const result = stmt.run(
     product.code,
     product.description || '',
+    product.description_en || '',
     product.name,
     product.spec || '',
     product.grade || '',
@@ -496,13 +568,14 @@ export function updateProduct(
 ): Product | undefined {
   const stmt = db.prepare(`
     UPDATE products
-    SET code = ?, description = ?, name = ?, spec = ?, grade = ?,
+    SET code = ?, description = ?, description_en = ?, name = ?, spec = ?, grade = ?,
         surface_treatment = ?, material = ?, special_note = ?, updated_at = CURRENT_TIMESTAMP
     WHERE id = ?
   `)
   stmt.run(
     product.code,
     product.description || '',
+    product.description_en || '',
     product.name,
     product.spec || '',
     product.grade || '',
@@ -558,10 +631,11 @@ export function importProducts(
   products: Omit<Product, 'id' | 'created_at' | 'updated_at' | 'drawings_count'>[]
 ): { success: number; failed: number; errors: string[] } {
   const upsertStmt = db.prepare(`
-    INSERT INTO products (code, description, name, spec, grade, surface_treatment, material, special_note, drawing_path)
-    VALUES (@code, @description, @name, @spec, @grade, @surface_treatment, @material, @special_note, '')
+    INSERT INTO products (code, description, description_en, name, spec, grade, surface_treatment, material, special_note, drawing_path)
+    VALUES (@code, @description, @description_en, @name, @spec, @grade, @surface_treatment, @material, @special_note, '')
     ON CONFLICT(code) DO UPDATE SET
       description = excluded.description,
+      description_en = excluded.description_en,
       name = excluded.name,
       spec = excluded.spec,
       grade = excluded.grade,
@@ -587,6 +661,7 @@ export function importProducts(
           upsertStmt.run({
             code: item.code,
             description: item.description || '',
+            description_en: item.description_en || '',
             name: item.name,
             spec: item.spec || '',
             grade: item.grade || '',
@@ -1104,7 +1179,11 @@ export function getInventoryLogs(
   type?: 'in' | 'out'
 ): InventoryLog[] {
   let sql = `
-    SELECT l.*, p.code as product_code, p.name as product_name, p.spec as product_spec, p.description as product_description
+    SELECT l.*,
+      COALESCE(p.code, '(已删物料 id ' || l.product_id || ')') as product_code,
+      COALESCE(p.name, '') as product_name,
+      COALESCE(p.spec, '') as product_spec,
+      COALESCE(p.description, '') as product_description
     FROM inventory_logs l
     LEFT JOIN products p ON l.product_id = p.id
     WHERE 1=1
@@ -1172,10 +1251,15 @@ export function getInventoryRankingStats(startDate: string, endDate: string): We
 
   const topOutbound = db
     .prepare(
-      `SELECT COALESCE(NULLIF(TRIM(p.description), ''), p.name, p.code) AS description,
+      `SELECT COALESCE(
+          NULLIF(TRIM(p.description), ''),
+          NULLIF(TRIM(p.name), ''),
+          NULLIF(TRIM(p.code), ''),
+          '已删物料 id ' || CAST(l.product_id AS TEXT)
+        ) AS description,
               SUM(l.quantity) AS quantity
        FROM inventory_logs l
-       JOIN products p ON p.id = l.product_id
+       LEFT JOIN products p ON p.id = l.product_id
        WHERE l.type = 'out'
          AND date(l.created_at) >= date(?)
          AND date(l.created_at) <= date(?)
@@ -1187,10 +1271,15 @@ export function getInventoryRankingStats(startDate: string, endDate: string): We
 
   const topInbound = db
     .prepare(
-      `SELECT COALESCE(NULLIF(TRIM(p.description), ''), p.name, p.code) AS description,
+      `SELECT COALESCE(
+          NULLIF(TRIM(p.description), ''),
+          NULLIF(TRIM(p.name), ''),
+          NULLIF(TRIM(p.code), ''),
+          '已删物料 id ' || CAST(l.product_id AS TEXT)
+        ) AS description,
               SUM(l.quantity) AS quantity
        FROM inventory_logs l
-       JOIN products p ON p.id = l.product_id
+       LEFT JOIN products p ON p.id = l.product_id
        WHERE l.type = 'in'
          AND date(l.created_at) >= date(?)
          AND date(l.created_at) <= date(?)

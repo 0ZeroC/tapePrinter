@@ -81,7 +81,17 @@ function DataPage(): JSX.Element {
       setFilteredProducts(products)
       return
     }
-    const fields: (keyof Product)[] = ['code', 'description', 'name', 'spec', 'grade', 'surface_treatment', 'material', 'special_note']
+    const fields: (keyof Product)[] = [
+      'code',
+      'description',
+      'description_en',
+      'name',
+      'spec',
+      'grade',
+      'surface_treatment',
+      'material',
+      'special_note'
+    ]
     const normalize = (s: string) => s.toLowerCase().replace(/[*×]/g, '_')
     setFilteredProducts(
       products.filter((p) =>
@@ -173,6 +183,7 @@ function DataPage(): JSX.Element {
       物料号: p.code,
       物品名称: p.name,
       物料描述: p.description,
+      英文描述: p.description_en ?? '',
       规格: p.spec,
       等级: p.grade,
       表面处理: p.surface_treatment,
@@ -186,6 +197,7 @@ function DataPage(): JSX.Element {
       { wch: 15 },
       { wch: 20 },
       { wch: 30 },
+      { wch: 28 },
       { wch: 15 },
       { wch: 10 },
       { wch: 12 },
@@ -217,8 +229,17 @@ function DataPage(): JSX.Element {
       title: '物料描述',
       dataIndex: 'description',
       key: 'description',
-      width: 320,
+      width: 280,
       render: (text: string) =>
+        text ? text : <span style={{ color: '#ccc' }}>-</span>
+    },
+    {
+      title: '英文描述',
+      dataIndex: 'description_en',
+      key: 'description_en',
+      width: 220,
+      ellipsis: true,
+      render: (text: string | undefined) =>
         text ? text : <span style={{ color: '#ccc' }}>-</span>
     },
     {
@@ -340,8 +361,8 @@ function DataPage(): JSX.Element {
           )}
           {isAdmin && (
             <Popconfirm
-              title="清空所有数据"
-              description="确定要清空所有物品数据吗？此操作不可恢复！"
+              title="清空所有物品"
+              description="将删除物品主数据、图纸与当前库存结存；出入库流水、打印记录与配货单会保留。确定继续？"
               onConfirm={handleDeleteAll}
               okText="确认清空"
               cancelText="取消"
