@@ -26,7 +26,8 @@ export function getLocalIP(): string {
 export function startServer(
   port: number,
   staticDir?: string,
-  viteDevUrl?: string
+  viteDevUrl?: string,
+  host = '0.0.0.0'
 ): Promise<string> {
   return new Promise((resolve, reject) => {
     const app = express()
@@ -64,7 +65,7 @@ export function startServer(
       })
     }
 
-    const server = app.listen(port, '0.0.0.0', () => {
+    const server = app.listen(port, host, () => {
       const ip = getLocalIP()
       serverUrl = `http://${ip}:${port}`
       console.log(`Server running at ${serverUrl}`)
@@ -75,7 +76,7 @@ export function startServer(
       if (err.code === 'EADDRINUSE') {
         console.log(`Port ${port} in use, trying ${port + 1}...`)
         server.close()
-        startServer(port + 1, staticDir, viteDevUrl).then(resolve).catch(reject)
+        startServer(port + 1, staticDir, viteDevUrl, host).then(resolve).catch(reject)
       } else {
         reject(err)
       }

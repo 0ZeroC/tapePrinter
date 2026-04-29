@@ -87,6 +87,20 @@ export function initDatabase(): void {
     );
   `)
 
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS open_api_audit_logs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      client_ip TEXT DEFAULT '',
+      method TEXT NOT NULL,
+      path TEXT NOT NULL,
+      status_code INTEGER NOT NULL,
+      duration_ms INTEGER NOT NULL DEFAULT 0,
+      success INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT DEFAULT (datetime('now', 'localtime'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_open_api_audit_logs_created_at ON open_api_audit_logs(created_at);
+  `)
+
   const getMeta = (key: string): string | null => {
     const row = db.prepare('SELECT value FROM app_meta WHERE key = ?').get(key) as { value: string } | undefined
     return row?.value ?? null
@@ -359,6 +373,53 @@ export function initDatabase(): void {
 
 export function getDatabase(): Database.Database {
   return db
+}
+
+export function getAppMetaValue(key: string): string | null {
+  const row = db.prepare('SELECT value FROM app_meta WHERE key = ?').get(key) as { value: string } | undefined
+  return row?.value ?? null
+}
+
+export function setAppMetaValue(key: string, value: string): void {
+  db.prepare('INSERT OR REPLACE INTO app_meta (key, value) VALUES (?, ?)').run(key, value)
+}
+
+export interface OpenApiAuditLog {
+  id?: number
+  client_ip: string
+  method: string
+  path: string
+  status_code: number
+  duration_ms: number
+  success: number
+  created_at?: string
+}
+
+export function appendOpenApiAuditLog(input: Omit<OpenApiAuditLog, 'id' | 'created_at'>): void {
+  db.prepare(`
+    INSERT INTO open_api_audit_logs
+      (client_ip, method, path, status_code, duration_ms, success, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, datetime('now', 'localtime'))
+  `).run(
+    input.client_ip || '',
+    input.method || '',
+    input.path || '',
+    input.status_code || 0,
+    Math.max(0, Number(input.duration_ms) || 0),
+    input.success ? 1 : 0
+  )
+}
+
+export function getOpenApiAuditLogs(limit = 200): OpenApiAuditLog[] {
+  const safeLimit = Math.max(1, Math.min(1000, Number(limit) || 200))
+  return db
+    .prepare(
+      `SELECT id, client_ip, method, path, status_code, duration_ms, success, created_at
+       FROM open_api_audit_logs
+       ORDER BY id DESC
+       LIMIT ?`
+    )
+    .all(safeLimit) as OpenApiAuditLog[]
 }
 
 // ==============================

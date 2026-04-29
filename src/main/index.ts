@@ -4,7 +4,9 @@ import { initDatabase } from './database'
 import { startServer, getServerUrl, getLocalIP } from './server'
 
 const isDev = !app.isPackaged
-const SERVER_PORT = 3456
+const DEFAULT_SERVER_PORT = 3456
+const SERVER_PORT = Number.parseInt(process.env.SERVER_PORT || '', 10) || DEFAULT_SERVER_PORT
+const SERVER_HOST = (process.env.SERVER_HOST || '0.0.0.0').trim() || '0.0.0.0'
 
 function showErrorAndQuit(title: string, err: unknown): void {
   const msg = err instanceof Error ? `${err.message}\n\n${err.stack}` : String(err)
@@ -91,7 +93,7 @@ app.whenReady().then(async () => {
       ? undefined
       : join(__dirname, '../renderer').replace('app.asar', 'app.asar.unpacked')
     const viteDevUrl = isDev ? process.env['ELECTRON_RENDERER_URL'] : undefined
-    serverUrl = await startServer(SERVER_PORT, rendererDir, viteDevUrl)
+    serverUrl = await startServer(SERVER_PORT, rendererDir, viteDevUrl, SERVER_HOST)
   } catch (err) {
     showErrorAndQuit('服务器启动失败', err)
     return

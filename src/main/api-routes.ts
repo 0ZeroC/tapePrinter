@@ -57,6 +57,8 @@ import {
   confirmPickingItems,
   resetPickingItems,
   getPickingOrderSplits,
+  appendOpenApiAuditLog,
+  getOpenApiAuditLogs,
   type Product
 } from './database'
 import {
@@ -67,6 +69,12 @@ import {
   dataManageMiddleware,
   pickingOrderManageMiddleware,
   pickingOrderOutboundMiddleware,
+  openApiReadMiddleware,
+  createOpenApiToken,
+  revokeOpenApiToken,
+  getOpenApiTokenStatus,
+  getOpenApiPolicy,
+  setOpenApiPolicy,
   type AuthRequest,
   type JwtPayload
 } from './auth'
@@ -129,6 +137,62 @@ function ok(data?: unknown) {
 
 function fail(error: string) {
   return { success: false, error }
+}
+
+function toPositiveInt(value: unknown, fallback: number): number {
+  const n = Number(value)
+  return Number.isFinite(n) && n > 0 ? Math.floor(n) : fallback
+}
+
+function paginate<T>(items: T[], pageRaw: unknown, pageSizeRaw: unknown, maxPageSize = 200): {
+  list: T[]
+  page: number
+  pageSize: number
+  total: number
+} {
+  const page = toPositiveInt(pageRaw, 1)
+  const pageSize = Math.min(toPositiveInt(pageSizeRaw, 50), maxPageSize)
+  const total = items.length
+  const start = (page - 1) * pageSize
+  return {
+    list: items.slice(start, start + pageSize),
+    page,
+    pageSize,
+    total
+  }
+}
+
+const openApiHits = new Map<string, number[]>()
+
+function openApiRateLimit(req: Express.Request, res: Express.Response, next: Express.NextFunction): void {
+  const ip = req.ip || req.socket.remoteAddress || 'unknown'
+  const now = Date.now()
+  const windowMs = 60 * 1000
+  const maxReq = 180
+  const recent = (openApiHits.get(ip) || []).filter((t) => now - t < windowMs)
+  if (recent.length >= maxReq) {
+    res.status(429).json(fail('开放接口访问过于频繁，请稍后再试'))
+    return
+  }
+  recent.push(now)
+  openApiHits.set(ip, recent)
+  next()
+}
+
+function openApiAudit(req: Express.Request, res: Express.Response, next: Express.NextFunction): void {
+  const startedAt = Date.now()
+  res.on('finish', () => {
+    const ip = req.ip || req.socket.remoteAddress || 'unknown'
+    appendOpenApiAuditLog({
+      client_ip: ip,
+      method: req.method,
+      path: req.originalUrl || req.path,
+      status_code: res.statusCode,
+      duration_ms: Date.now() - startedAt,
+      success: res.statusCode < 400 ? 1 : 0
+    })
+  })
+  next()
 }
 
 // ==============================
@@ -201,6 +265,39 @@ router.post('/auth/change-password', authMiddleware, (req: AuthRequest, res) => 
   } catch (err) {
     res.json(fail((err as Error).message))
   }
+})
+
+router.get('/auth/open-api-token/status', authMiddleware, adminMiddleware, (_req, res) => {
+  res.json(ok(getOpenApiTokenStatus()))
+})
+
+router.post('/auth/open-api-token/rotate', authMiddleware, adminMiddleware, (_req, res) => {
+  const token = createOpenApiToken()
+  res.json(ok({ token }))
+})
+
+router.delete('/auth/open-api-token', authMiddleware, adminMiddleware, (_req, res) => {
+  revokeOpenApiToken()
+  res.json(ok())
+})
+
+router.get('/auth/open-api-policy', authMiddleware, adminMiddleware, (_req, res) => {
+  res.json(ok(getOpenApiPolicy()))
+})
+
+router.put('/auth/open-api-policy', authMiddleware, adminMiddleware, (req, res) => {
+  const enabled = typeof req.body?.enabled === 'boolean' ? req.body.enabled : undefined
+  const requiredScope = typeof req.body?.requiredScope === 'string' ? req.body.requiredScope : undefined
+  const allowedIps = Array.isArray(req.body?.allowedIps)
+    ? req.body.allowedIps.map((v: unknown) => String(v))
+    : undefined
+  const next = setOpenApiPolicy({ enabled, requiredScope, allowedIps })
+  res.json(ok(next))
+})
+
+router.get('/auth/open-api-audit-logs', authMiddleware, adminMiddleware, (req, res) => {
+  const limit = typeof req.query.limit === 'string' ? Number.parseInt(req.query.limit, 10) : 200
+  res.json(ok(getOpenApiAuditLogs(limit)))
 })
 
 // ==============================
@@ -917,6 +1014,125 @@ router.get('/picking-orders/:id', authMiddleware, (req, res) => {
   } catch (err) {
     res.json(fail((err as Error).message))
   }
+})
+
+// ==============================
+// Open API (read-only for LAN agent frameworks)
+// ==============================
+
+router.get('/open/v1/health', openApiReadMiddleware, openApiRateLimit, openApiAudit, (_req, res) => {
+  res.json(ok({ service: 'inventory-management-open-api', mode: 'read-only' }))
+})
+
+router.get('/open/v1/products', openApiReadMiddleware, openApiRateLimit, openApiAudit, (req, res) => {
+  try {
+    const q = typeof req.query.q === 'string' ? req.query.q.trim() : ''
+    const source = q ? searchProducts(q) : getAllProducts()
+    res.json(ok(paginate(source, req.query.page, req.query.pageSize, 200)))
+  } catch (err) {
+    res.json(fail((err as Error).message))
+  }
+})
+
+router.get('/open/v1/products/:id', openApiReadMiddleware, openApiRateLimit, openApiAudit, (req, res) => {
+  try {
+    const id = Number.parseInt(String(req.params.id), 10)
+    if (!Number.isFinite(id) || id <= 0) {
+      res.status(400).json(fail('无效的物料 ID'))
+      return
+    }
+    const product = getProductById(id)
+    if (!product) {
+      res.status(404).json(fail('物料不存在'))
+      return
+    }
+    res.json(ok(product))
+  } catch (err) {
+    res.json(fail((err as Error).message))
+  }
+})
+
+router.get('/open/v1/products/code/:code', openApiReadMiddleware, openApiRateLimit, openApiAudit, (req, res) => {
+  try {
+    const code = decodeURIComponent(String(req.params.code || '')).trim()
+    if (!code) {
+      res.status(400).json(fail('请提供物料编码'))
+      return
+    }
+    const product = getProductByCode(code)
+    if (!product) {
+      res.status(404).json(fail('物料不存在'))
+      return
+    }
+    res.json(ok(product))
+  } catch (err) {
+    res.json(fail((err as Error).message))
+  }
+})
+
+router.get('/open/v1/inventory', openApiReadMiddleware, openApiRateLimit, openApiAudit, (req, res) => {
+  try {
+    const source = getAllInventory()
+    res.json(ok(paginate(source, req.query.page, req.query.pageSize, 200)))
+  } catch (err) {
+    res.json(fail((err as Error).message))
+  }
+})
+
+router.get('/open/v1/inventory/logs', openApiReadMiddleware, openApiRateLimit, openApiAudit, (req, res) => {
+  try {
+    const productId = req.query.productId ? Number.parseInt(String(req.query.productId), 10) : undefined
+    const type = req.query.type === 'in' || req.query.type === 'out' ? req.query.type : undefined
+    const source = getInventoryLogs(Number.isFinite(productId as number) ? productId : undefined, type)
+    res.json(ok(paginate(source, req.query.page, req.query.pageSize, 200)))
+  } catch (err) {
+    res.json(fail((err as Error).message))
+  }
+})
+
+router.get('/open/v1/picking-orders', openApiReadMiddleware, openApiRateLimit, openApiAudit, (req, res) => {
+  try {
+    const orderNo = typeof req.query.orderNo === 'string' ? req.query.orderNo.trim() : ''
+    if (!orderNo) {
+      res.json(ok(paginate(getPickingOrderList(), req.query.page, req.query.pageSize, 200)))
+      return
+    }
+    res.json(ok(paginate(getPickingOrderItems(orderNo), req.query.page, req.query.pageSize, 200)))
+  } catch (err) {
+    res.json(fail((err as Error).message))
+  }
+})
+
+router.get('/open/v1/openapi.json', openApiReadMiddleware, openApiRateLimit, openApiAudit, (req, res) => {
+  const host = req.get('host') || 'localhost:3456'
+  res.json(ok({
+    openapi: '3.1.0',
+    info: {
+      title: 'Inventory Management Open API',
+      version: '1.0.0',
+      description: 'LAN read-only API for agent frameworks.'
+    },
+    servers: [{ url: `http://${host}/api/open/v1` }],
+    security: [{ bearerAuth: [] }],
+    components: {
+      securitySchemes: {
+        bearerAuth: { type: 'http', scheme: 'bearer', bearerFormat: 'OpenApiToken' }
+      }
+    },
+    paths: {
+      '/health': { get: { summary: 'Health check' } },
+      '/products': { get: { summary: 'List or search products' } },
+      '/products/{id}': { get: { summary: 'Get product by id' } },
+      '/products/code/{code}': { get: { summary: 'Get product by code' } },
+      '/inventory': { get: { summary: 'List inventory' } },
+      '/inventory/logs': { get: { summary: 'List inventory logs' } },
+      '/picking-orders': { get: { summary: 'List picking orders or order items' } }
+    }
+  }))
+})
+
+router.all('/open/v1/{*splat}', openApiReadMiddleware, openApiAudit, (_req, res) => {
+  res.status(405).json(fail('开放接口仅支持只读 GET 请求'))
 })
 
 export default router
