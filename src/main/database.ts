@@ -384,6 +384,10 @@ export function setAppMetaValue(key: string, value: string): void {
   db.prepare('INSERT OR REPLACE INTO app_meta (key, value) VALUES (?, ?)').run(key, value)
 }
 
+export function deleteAppMetaValue(key: string): void {
+  db.prepare('DELETE FROM app_meta WHERE key = ?').run(key)
+}
+
 export interface OpenApiAuditLog {
   id?: number
   client_ip: string

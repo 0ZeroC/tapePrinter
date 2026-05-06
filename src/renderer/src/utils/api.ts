@@ -172,6 +172,14 @@ export interface PickingOrderSummary {
   pending_count: number
 }
 
+/** 副转只拆分规则 CSV（服务端持久化 + 内置默认） */
+export interface SubBoltRulesInfo {
+  source: 'custom' | 'builtin'
+  csv: string
+  rowCount: number
+  materialCount: number
+}
+
 function getToken(): string | null {
   return localStorage.getItem('token')
 }
@@ -489,6 +497,14 @@ export const api = {
 
   getPickingOrderSplits: (id: number) =>
     request<PickingSplitRow[]>(`/picking-orders/${id}/splits`),
+
+  getSubBoltRules: () => request<SubBoltRulesInfo>('/picking-orders/sub-bolt-rules'),
+
+  setSubBoltRules: (csv: string) =>
+    request<SubBoltRulesInfo>('/picking-orders/sub-bolt-rules', {
+      method: 'PUT',
+      body: JSON.stringify({ csv })
+    }),
 
   // File upload
   uploadExcel: (file: File) => {

@@ -59,8 +59,12 @@ import {
   getPickingOrderSplits,
   appendOpenApiAuditLog,
   getOpenApiAuditLogs,
+  getAppMetaValue,
+  setAppMetaValue,
+  deleteAppMetaValue,
   type Product
 } from './database'
+import { parseSubBoltRulesCsv, getBuiltinSubBoltRulesCsv } from '../common/subBoltRules'
 import {
   signToken,
   authMiddleware,
@@ -815,6 +819,90 @@ router.post('/upload/excel', authMiddleware, upload.single('file'), (req, res) =
 // Picking Orders
 // ==============================
 
+const SUB_BOLT_RULES_CSV_META_KEY = 'picking_sub_bolt_rules_csv'
+
+/** 仅接受纯数字 ID，避免 /picking-orders/sub-bolt-rules 等路径被误当作 :id */
+function parsePickingOrderRowId(param: unknown): number | null {
+  const s = String(param ?? '').trim()
+  if (!/^\d+$/.test(s)) return null
+  const id = Number.parseInt(s, 10)
+  return id > 0 ? id : null
+}
+
+router.get('/picking-orders/sub-bolt-rules', authMiddleware, (_req, res) => {
+  try {
+    const builtin = getBuiltinSubBoltRulesCsv()
+    const custom = getAppMetaValue(SUB_BOLT_RULES_CSV_META_KEY)?.trim()
+    if (!custom) {
+      const p = parseSubBoltRulesCsv(builtin)
+      res.json(
+        ok({
+          source: 'builtin' as const,
+          csv: builtin,
+          rowCount: p.rowCount,
+          materialCount: Object.keys(p.map).length
+        })
+      )
+      return
+    }
+    const parsedCustom = parseSubBoltRulesCsv(custom)
+    if (parsedCustom.rowCount === 0 || parsedCustom.errors.length > 0) {
+      deleteAppMetaValue(SUB_BOLT_RULES_CSV_META_KEY)
+      const p = parseSubBoltRulesCsv(builtin)
+      res.json(
+        ok({
+          source: 'builtin' as const,
+          csv: builtin,
+          rowCount: p.rowCount,
+          materialCount: Object.keys(p.map).length
+        })
+      )
+      return
+    }
+    res.json(
+      ok({
+        source: 'custom' as const,
+        csv: custom,
+        rowCount: parsedCustom.rowCount,
+        materialCount: Object.keys(parsedCustom.map).length
+      })
+    )
+  } catch (err) {
+    res.json(fail((err as Error).message))
+  }
+})
+
+router.put('/picking-orders/sub-bolt-rules', authMiddleware, pickingOrderManageMiddleware, (req, res) => {
+  try {
+    const body = req.body as { csv?: string }
+    const csv = typeof body.csv === 'string' ? body.csv : ''
+    const parsed = parseSubBoltRulesCsv(csv)
+    if (parsed.errors.length > 0) {
+      res.json(
+        fail(
+          parsed.errors.slice(0, 25).join('；') + (parsed.errors.length > 25 ? ' …' : '')
+        )
+      )
+      return
+    }
+    if (parsed.rowCount === 0) {
+      res.json(fail('未包含任何有效规则行'))
+      return
+    }
+    setAppMetaValue(SUB_BOLT_RULES_CSV_META_KEY, csv)
+    res.json(
+      ok({
+        source: 'custom' as const,
+        csv,
+        rowCount: parsed.rowCount,
+        materialCount: Object.keys(parsed.map).length
+      })
+    )
+  } catch (err) {
+    res.json(fail((err as Error).message))
+  }
+})
+
 router.get('/picking-orders', authMiddleware, (req, res) => {
   try {
     const orderNo = (req.query.orderNo as string || '').trim()
@@ -903,7 +991,11 @@ router.post('/picking-orders', authMiddleware, pickingOrderManageMiddleware, (re
 
 router.put('/picking-orders/:id', authMiddleware, pickingOrderManageMiddleware, (req, res) => {
   try {
-    const id = parseInt(req.params.id)
+    const id = parsePickingOrderRowId(req.params.id)
+    if (id === null) {
+      res.json(fail('配货记录 ID 无效（须为正整数）'))
+      return
+    }
     const item = updatePickingOrderItem(id, req.body)
     if (!item) {
       res.json(fail('记录不存在'))
@@ -927,7 +1019,11 @@ router.delete('/picking-orders/by-order/:orderNo', authMiddleware, pickingOrderM
 
 router.delete('/picking-orders/:id', authMiddleware, pickingOrderManageMiddleware, (req, res) => {
   try {
-    const id = parseInt(req.params.id)
+    const id = parsePickingOrderRowId(req.params.id)
+    if (id === null) {
+      res.json(fail('配货记录 ID 无效（须为正整数）'))
+      return
+    }
     deletePickingOrderItem(id)
     res.json(ok())
   } catch (err) {
@@ -990,9 +1086,9 @@ router.post('/picking-orders/reset-pick', authMiddleware, pickingOrderOutboundMi
 
 router.get('/picking-orders/:id/splits', authMiddleware, (req, res) => {
   try {
-    const id = parseInt(req.params.id)
-    if (Number.isNaN(id)) {
-      res.json(fail('ID 无效'))
+    const id = parsePickingOrderRowId(req.params.id)
+    if (id === null) {
+      res.json(fail('配货记录 ID 无效（须为正整数）'))
       return
     }
     const rows = getPickingOrderSplits(id)
@@ -1004,7 +1100,11 @@ router.get('/picking-orders/:id/splits', authMiddleware, (req, res) => {
 
 router.get('/picking-orders/:id', authMiddleware, (req, res) => {
   try {
-    const id = parseInt(req.params.id)
+    const id = parsePickingOrderRowId(req.params.id)
+    if (id === null) {
+      res.json(fail('配货记录 ID 无效（须为正整数）'))
+      return
+    }
     const item = getPickingOrderItemById(id)
     if (!item) {
       res.json(fail('记录不存在'))
