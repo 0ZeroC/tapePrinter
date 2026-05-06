@@ -34,15 +34,13 @@ import {
 import * as XLSX from 'xlsx'
 import ExcelJS from 'exceljs'
 import JsBarcode from 'jsbarcode'
-import fallbackLogoUrl from '../assets/logo.png'
 import ResizableTable from '../components/ResizableTable'
 import { api, type PickingOrderItem, type Product, type PickingSplitRow, type PickingOrderSummary } from '../utils/api'
 import { useAuth } from '../contexts/AuthContext'
 import type { PrintPagePreset } from './PrintPage'
 
 const { Text } = Typography
-const DELIVERY_NOTE_TITLE = '扬州硕瑞机电有限公司 送货单'
-const DELIVERY_LOGO_URL = 'file:///C:/Users/Administrator/.cursor/projects/e-gitProjects-tapePrinter/assets/e__gitProjects_tapePrinter_____logo_transparent.png'
+const DELIVERY_NOTE_TITLE = '通用送货单'
 
 interface SubBoltRule {
   boltCode?: string
@@ -516,32 +514,6 @@ interface PickingOrderPageProps {
   onOpenBilingualLabel?: (payload: PrintPagePreset) => void
   initialOrderNo?: string
   onOrderLoaded?: (orderNo: string) => void
-}
-
-const loadImageAsDataUrl = async (url: string): Promise<string> => {
-  const response = await fetch(url)
-  if (!response.ok) {
-    throw new Error(`加载图片失败：${response.status}`)
-  }
-  const blob = await response.blob()
-  return await new Promise<string>((resolve, reject) => {
-    const reader = new FileReader()
-    reader.onload = () => resolve(String(reader.result || ''))
-    reader.onerror = () => reject(new Error('读取图片失败'))
-    reader.readAsDataURL(blob)
-  })
-}
-
-const loadFirstAvailableImageDataUrl = async (urls: string[]): Promise<string> => {
-  for (const url of urls) {
-    if (!url) continue
-    try {
-      return await loadImageAsDataUrl(url)
-    } catch {
-      // 尝试下一个候选地址
-    }
-  }
-  return ''
 }
 
 const buildBarcodeDataUrl = (value: string): string => {
@@ -1389,10 +1361,8 @@ function PickingOrderPage({
       const now = new Date()
       const exportDateStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
       const projectName = selectedItems.find(item => item.project_name?.trim())?.project_name || '-'
-      const logoDataUrl = await loadFirstAvailableImageDataUrl([DELIVERY_LOGO_URL, fallbackLogoUrl])
       const barcodeDataUrl = buildBarcodeDataUrl(orderNo)
       const barcodeImageId = workbook.addImage({ base64: barcodeDataUrl, extension: 'png' })
-      const logoImageId = logoDataUrl ? workbook.addImage({ base64: logoDataUrl, extension: 'png' }) : null
 
       const applyTableBorders = (fromRow: number, toRow: number): void => {
         for (let row = fromRow; row <= toRow; row++) {
@@ -1421,20 +1391,13 @@ function PickingOrderPage({
         sheet.getCell(`C${titleRow}`).alignment = { vertical: 'middle', horizontal: 'left' }
         sheet.getCell(`C${titleRow}`).font = { bold: true, size: 16 }
 
-        if (logoImageId) {
-          sheet.addImage(logoImageId, {
-            tl: { col: 0, row: titleRow - 1 + 0.1 },
-            ext: { width: 72, height: 36 }
-          })
-        }
-
         sheet.addImage(barcodeImageId, {
           tl: { col: 4, row: titleRow - 1 + 0.05 },
           ext: { width: 170, height: 40 }
         })
 
         sheet.mergeCells(`A${orderRow}:E${orderRow}`)
-        sheet.getCell(`A${orderRow}`).value = `购买单位：丰尚             送货日期：${exportDateStr}                      订单号：${orderNo}   `
+        sheet.getCell(`A${orderRow}`).value = `购买单位：________             送货日期：${exportDateStr}                      订单号：${orderNo}   `
         sheet.getCell(`A${orderRow}`).font = { bold: true, size: 12 }
         sheet.getCell(`A${orderRow}`).alignment = { vertical: 'middle', horizontal: 'left' }
 
@@ -1471,7 +1434,7 @@ function PickingOrderPage({
         sheet.getCell(`E${materialStartRow}`).alignment = { vertical: 'middle', horizontal: 'center', wrapText: true }
 
         sheet.mergeCells(`A${footerAddressRow}:E${footerAddressRow}`)
-        sheet.getCell(`A${footerAddressRow}`).value = '公司地址：扬州市邗江区三盛国际广场3幢1607室                                               电话：0514-87950633'
+        sheet.getCell(`A${footerAddressRow}`).value = '公司地址：____________________                                               电话：____________________'
         sheet.getCell(`A${footerAddressRow}`).alignment = { vertical: 'middle', horizontal: 'left' }
         sheet.getCell(`A${footerAddressRow}`).font = { size: 11 }
 
@@ -1514,9 +1477,6 @@ function PickingOrderPage({
       }
 
       message.success(`送货单导出成功（${selectedItems.length} 条，一式两份）`)
-      if (!logoDataUrl) {
-        message.warning('未加载到公司 Logo，已导出无 Logo 版本')
-      }
     } catch {
       message.error('导出送货单失败，请稍后重试')
     }

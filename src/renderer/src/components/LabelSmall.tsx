@@ -1,7 +1,6 @@
 import { useEffect, useState, useMemo, useRef } from 'react'
 import QRCode from 'qrcode'
 import type { Product } from '../utils/api'
-import logoImg from '../assets/logo.png'
 import stampImg from '../assets/stamp.png'
 
 interface LabelSmallProps {
@@ -62,8 +61,7 @@ function LabelSmall({
   return (
     <div className="label-small">
       <div className="label-company">
-        <img src={logoImg} alt="logo" className="label-logo" />
-        <span>扬州硕瑞机电有限公司</span>
+        <span>通用产品标签</span>
       </div>
       <div className="label-content">
         <div className="label-left">

@@ -1,7 +1,6 @@
 import { useMemo, type ReactElement } from 'react'
 import { QRCodeSVG } from 'qrcode.react'
 import type { Product } from '../utils/api'
-import logoImg from '../assets/logo.png'
 import stampImg from '../assets/stamp.png'
 
 /** 拼箱时每条物料：中文来自配货行，英文来自物料主数据 */
@@ -166,8 +165,7 @@ function LabelLargeBilingual({
     <div className="label-large label-large-bilingual">
       {isCombined && <img src={stampImg} alt="检验合格" className="label-combined-stamp-overlay" />}
       <div className="label-title">
-        <img src={logoImg} alt="logo" className="label-logo" />
-        <span>扬州硕瑞机电有限公司</span>
+        <span>Universal Product Label</span>
       </div>
       <div className="label-info">
         <div className="label-details">

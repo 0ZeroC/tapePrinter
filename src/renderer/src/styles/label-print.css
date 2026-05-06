@@ -144,14 +144,11 @@
   }
 
   /*
-   * Logo、印章：只加深有颜色的部分，提高打印密度，不显示背景（透明区域保持透明）。
+   * 印章：只加深有颜色的部分，提高打印密度，不显示背景（透明区域保持透明）。
    * filter 只作用于像素颜色，不改变 alpha，故不会出现背景。
    */
-  .print-area .label-small .label-logo,
   .print-area .label-small .label-stamp,
-  .print-area .label-large .label-logo,
   .print-area .label-large .label-stamp,
-  .print-area .label-large-bilingual .label-logo,
   .print-area .label-large-bilingual .label-stamp {
     -webkit-print-color-adjust: exact !important;
     print-color-adjust: exact !important;
@@ -194,12 +191,6 @@
   border-bottom: 0.3mm solid #000;
   padding-bottom: 0.5mm;
   margin-bottom: 0.5mm;
-}
-
-.label-small .label-logo {
-  height: 4mm;
-  width: auto;
-  object-fit: contain;
 }
 
 .label-small .label-content {
@@ -314,12 +305,6 @@
   padding-bottom: 1.5mm;
   margin-bottom: 2.5mm;
   transform: translateX(-8mm);
-}
-
-.label-large .label-logo {
-  height: 7.5mm;
-  width: auto;
-  object-fit: contain;
 }
 
 .label-large .label-info {

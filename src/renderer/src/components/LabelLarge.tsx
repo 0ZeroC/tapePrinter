@@ -1,7 +1,6 @@
 import { useMemo, type ReactElement } from 'react'
 import { QRCodeSVG } from 'qrcode.react'
 import type { Product } from '../utils/api'
-import logoImg from '../assets/logo.png'
 import stampImg from '../assets/stamp.png'
 
 export interface CombinedLabelItem {
@@ -80,8 +79,7 @@ function LabelLarge({
         <img src={stampImg} alt="检验合格" className="label-combined-stamp-overlay" />
       )}
       <div className="label-title">
-        <img src={logoImg} alt="logo" className="label-logo" />
-        <span>扬州硕瑞机电有限公司</span>
+        <span>通用产品标签</span>
       </div>
       <div className="label-info">
         <div className="label-details">
