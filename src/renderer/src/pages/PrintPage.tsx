@@ -1,12 +1,14 @@
 import { useState, useRef, useCallback, useEffect, useMemo, type ReactElement } from 'react'
-import { Input, Button, InputNumber, Radio, Select, Space, Card, message, Divider, Empty, Typography, Checkbox } from 'antd'
-import { SearchOutlined, PrinterOutlined } from '@ant-design/icons'
+import { Input, Button, InputNumber, Radio, Select, Space, Card, message, Divider, Empty, Typography, Checkbox, Modal } from 'antd'
+import { SearchOutlined, PrinterOutlined, SettingOutlined } from '@ant-design/icons'
 import ResizableTable from '../components/ResizableTable'
 import { api, type Product } from '../utils/api'
 import LabelSmall from '../components/LabelSmall'
 import LabelLarge, { type CombinedLabelItem } from '../components/LabelLarge'
 import LabelLargeBilingual, { type BilingualLabelItem } from '../components/LabelLargeBilingual'
 import '../styles/label-print.css'
+import { printLabelByTemplate, resolveDeviceName } from '../utils/labelPrinter'
+import LabelPrinterSettingsModal from '../components/LabelPrinterSettingsModal'
 
 const { Title } = Typography
 
@@ -66,6 +68,7 @@ function PrintPage({ preset, mode = 'normal' }: PrintPageProps): ReactElement {
   const initialEnFromPresetRef = useRef(false)
   const [boxNo, setBoxNo] = useState<number | undefined>(undefined)
   const [descriptionEn, setDescriptionEn] = useState('')
+  const [printerModalOpen, setPrinterModalOpen] = useState(false)
   const searchInputRef = useRef<any>(null)
   const searchTextRef = useRef('')
   const scanRapidKeyCountRef = useRef(0)
@@ -274,11 +277,11 @@ function PrintPage({ preset, mode = 'normal' }: PrintPageProps): ReactElement {
           message.error(deductResult.error || '记录打印失败')
           return
         }
-        if (window.electronAPI?.printLabel) {
-          await window.electronAPI.printLabel('large')
-        } else {
-          window.print()
+        const mapped = await resolveDeviceName('large')
+        if (window.electronAPI?.printLabel && !mapped) {
+          message.warning('未配置大标签打印机，将弹出系统打印对话框')
         }
+        await printLabelByTemplate('large')
         const totalPieces = qtyForDeduct
         const deductThousands = totalPieces / 1000
         message.success(
@@ -315,11 +318,11 @@ function PrintPage({ preset, mode = 'normal' }: PrintPageProps): ReactElement {
         message.error(deductResult.error || '记录打印失败')
         return
       }
-      if (window.electronAPI?.printLabel) {
-        await window.electronAPI.printLabel(templateType)
-      } else {
-        window.print()
+      const mapped = await resolveDeviceName(templateType)
+      if (window.electronAPI?.printLabel && !mapped) {
+        message.warning(`未配置${templateType === 'small' ? '小' : '大'}标签打印机，将弹出系统打印对话框`)
       }
+      await printLabelByTemplate(templateType)
       const totalPieces = quantity
       const deductThousands = totalPieces / 1000
       message.success(
@@ -434,6 +437,17 @@ function PrintPage({ preset, mode = 'normal' }: PrintPageProps): ReactElement {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
       <Card size="small" style={{ marginBottom: 16 }}>
+        {window.electronAPI?.getPrinters && (
+          <div style={{ marginBottom: 8, textAlign: 'right' }}>
+            <Button
+              size="small"
+              icon={<SettingOutlined />}
+              onClick={() => setPrinterModalOpen(true)}
+            >
+              打印机设置
+            </Button>
+          </div>
+        )}
         <Space.Compact style={{ width: '100%' }}>
           <Input
             ref={searchInputRef}
@@ -760,6 +774,11 @@ function PrintPage({ preset, mode = 'normal' }: PrintPageProps): ReactElement {
           </Card>
         </div>
       )}
+
+      <LabelPrinterSettingsModal
+        open={printerModalOpen}
+        onClose={() => setPrinterModalOpen(false)}
+      />
     </div>
   )
 }

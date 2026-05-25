@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback, useEffect, type JSX, type ChangeEvent } from 'react'
+import { useState, useRef, useCallback, useEffect, useMemo, type JSX, type ChangeEvent } from 'react'
 import {
   Input,
   Button,
@@ -29,13 +29,33 @@ import {
   ReloadOutlined,
   UnorderedListOutlined,
   ExportOutlined,
-  ClearOutlined
+  ClearOutlined,
+  PrinterOutlined
 } from '@ant-design/icons'
 import * as XLSX from 'xlsx'
 import ExcelJS from 'exceljs'
 import JsBarcode from 'jsbarcode'
 import fallbackLogoUrl from '../assets/logo.png'
 import ResizableTable from '../components/ResizableTable'
+import HiddenBatchPrinter, {
+  type HiddenBatchPrinterHandle
+} from '../components/HiddenBatchPrinter'
+import { runBatchLabelPrint, type BatchPrintItem } from '../utils/batchLabelPrint'
+import LabelPrinterSettingsForm from '../components/LabelPrinterSettingsForm'
+import {
+  formatPrinterMapLabels,
+  getLabelPrinterMap,
+  listPrinters,
+  setLabelPrinterMap,
+  type LabelPrinterMap,
+  type PrinterInfo
+} from '../utils/labelPrinter'
+import {
+  getDefaultMacroScriptPath,
+  getMacroScriptPath,
+  pickingItemToBatchPrintItem,
+  setMacroScriptPath
+} from '../utils/macroPrint'
 import { api, type PickingOrderItem, type Product, type PickingSplitRow, type PickingOrderSummary } from '../utils/api'
 import { useAuth } from '../contexts/AuthContext'
 import type { PrintPagePreset } from './PrintPage'
@@ -227,6 +247,24 @@ function PickingOrderPage({
   const [subBoltRulesRowCount, setSubBoltRulesRowCount] = useState(0)
   const [subBoltRulesUploading, setSubBoltRulesUploading] = useState(false)
   const subBoltCsvInputRef = useRef<HTMLInputElement>(null)
+  const hiddenBatchPrinterRef = useRef<HiddenBatchPrinterHandle>(null)
+
+  const [batchPrintModalOpen, setBatchPrintModalOpen] = useState(false)
+  const [batchPrintTemplate, setBatchPrintTemplate] = useState<'small' | 'large'>('small')
+  const [batchPrinting, setBatchPrinting] = useState(false)
+  const [batchPrintProgress, setBatchPrintProgress] = useState({ current: 0, total: 0 })
+  const [batchPrinterMap, setBatchPrinterMap] = useState<LabelPrinterMap>({})
+  const [batchPrinterList, setBatchPrinterList] = useState<PrinterInfo[]>([])
+  const [batchPrinterLoading, setBatchPrinterLoading] = useState(false)
+
+  const [macroPrintModalOpen, setMacroPrintModalOpen] = useState(false)
+  const [macroPrintTemplate, setMacroPrintTemplate] = useState<'small' | 'large'>('small')
+  const [macroScriptPath, setMacroScriptPath] = useState('')
+  const [macroRunning, setMacroRunning] = useState(false)
+  const [macroProgress, setMacroProgress] = useState({ current: 0, total: 0 })
+  const [screenInfo, setScreenInfo] = useState<{ width: number; height: number; scaleFactor: number } | null>(
+    null
+  )
 
   const loadSubBoltRules = useCallback(async () => {
     const res = await api.getSubBoltRules()
@@ -1687,6 +1725,264 @@ function PickingOrderPage({
     message.success(`已反选“只/1228/3632”规则结果，共勾选 ${inverseIds.length} 条`)
   }, [orderItems, isRuleMatchedItem])
 
+  const getSelectedPickingItems = useCallback((): PickingOrderItem[] => {
+    return selectedIds
+      .map((id) => orderItems.find((i) => i.id === id))
+      .filter((i): i is PickingOrderItem => !!i)
+  }, [selectedIds, orderItems])
+
+  const stubProductFromPickingItem = useCallback((item: PickingOrderItem): Product => {
+    return {
+      id: 0,
+      code: item.product_code,
+      description: item.description || item.product_code,
+      name: '',
+      spec: '',
+      grade: '',
+      surface_treatment: '',
+      material: '',
+      special_note: '',
+      drawings_count: 0,
+      created_at: '',
+      updated_at: ''
+    } as Product
+  }, [])
+
+  const resolveProductForBatch = useCallback(
+    async (item: BatchPrintItem): Promise<Product> => {
+      try {
+        const result = await api.getProductByCode(item.productCode.trim())
+        if (result.success && result.data) {
+          return result.data
+        }
+      } catch {
+        // fallback
+      }
+      const picking = orderItems.find((r) => r.product_code === item.productCode)
+      if (picking) return stubProductFromPickingItem(picking)
+      return {
+        id: 0,
+        code: item.productCode,
+        description: item.description || item.productCode,
+        name: '',
+        spec: '',
+        grade: '',
+        surface_treatment: '',
+        material: '',
+        special_note: '',
+        drawings_count: 0,
+        created_at: '',
+        updated_at: ''
+      } as Product
+    },
+    [orderItems, stubProductFromPickingItem]
+  )
+
+  const loadBatchPrinterConfig = useCallback(async () => {
+    setBatchPrinterMap(getLabelPrinterMap())
+    if (!window.electronAPI?.getPrinters) return
+    setBatchPrinterLoading(true)
+    try {
+      const printers = await listPrinters()
+      setBatchPrinterList(printers)
+      if (printers.length === 0) {
+        message.warning('未检测到本机打印机，请检查驱动或 USB 连接')
+      }
+    } catch {
+      message.error('获取打印机列表失败')
+    } finally {
+      setBatchPrinterLoading(false)
+    }
+  }, [])
+
+  const handleBatchPrinterMapChange = useCallback((map: LabelPrinterMap) => {
+    setBatchPrinterMap(map)
+    setLabelPrinterMap(map)
+  }, [])
+
+  const handleOpenBatchPrintModal = useCallback(() => {
+    if (selectedIds.length === 0) {
+      message.warning('请先勾选要打印的物料')
+      return
+    }
+    setBatchPrintTemplate('small')
+    setBatchPrintModalOpen(true)
+    void loadBatchPrinterConfig()
+  }, [selectedIds.length, loadBatchPrinterConfig])
+
+  const handleConfirmBatchPrint = useCallback(async () => {
+    const items = getSelectedPickingItems()
+    if (items.length === 0) {
+      message.warning('未找到有效勾选行')
+      return
+    }
+    if (window.electronAPI?.getPrinters) {
+      const device =
+        batchPrintTemplate === 'small' ? batchPrinterMap.small : batchPrinterMap.large
+      if (!device?.trim()) {
+        message.warning(
+          `请先在下方选择${batchPrintTemplate === 'small' ? '小' : '大'}标签对应的打印机`
+        )
+        return
+      }
+    }
+    const batchItems: BatchPrintItem[] = items.map((item) => ({
+      productCode: item.product_code,
+      orderNo: item.order_no,
+      projectName: item.project_name || '',
+      quantity: item.quantity,
+      unit: item.unit || '只',
+      description: item.description || item.product_code
+    }))
+    const printer = hiddenBatchPrinterRef.current
+    if (!printer) {
+      message.error('打印组件未就绪')
+      return
+    }
+
+    setBatchPrinting(true)
+    setBatchPrintProgress({ current: 0, total: batchItems.length })
+    try {
+      const result = await runBatchLabelPrint(batchItems, batchPrintTemplate, {
+        onProgress: (current, total) => setBatchPrintProgress({ current, total }),
+        resolveProduct: resolveProductForBatch,
+        renderAndPrint: async (item, product, templateType) => {
+          await printer.printJob({
+            product,
+            productCode: item.productCode,
+            orderNo: item.orderNo,
+            projectName: item.projectName,
+            quantity: item.quantity,
+            unit: item.unit,
+            templateType
+          })
+        }
+      })
+      setBatchPrintModalOpen(false)
+      if (result.failed.length === 0) {
+        message.success(`已发送 ${result.success} 条打印任务到系统队列（不扣库存）`)
+      } else {
+        message.warning(`完成 ${result.success} 条，失败 ${result.failed.length} 条`)
+        Modal.warning({
+          title: '部分打印失败',
+          content: (
+            <div style={{ maxHeight: 240, overflow: 'auto' }}>
+              {result.failed.map((f, i) => (
+                <div key={i} style={{ fontSize: 12 }}>
+                  {f.code}：{f.reason}
+                </div>
+              ))}
+            </div>
+          )
+        })
+      }
+    } catch (err) {
+      message.error(err instanceof Error ? err.message : '批量打印失败')
+    } finally {
+      setBatchPrinting(false)
+      setBatchPrintProgress({ current: 0, total: 0 })
+    }
+  }, [batchPrintTemplate, batchPrinterMap, getSelectedPickingItems, resolveProductForBatch])
+
+  const handleOpenMacroPrintModal = useCallback(async () => {
+    if (!window.electronAPI?.runMacroBatch) {
+      message.info('宏打印仅在桌面端可用')
+      return
+    }
+    if (selectedIds.length === 0) {
+      message.warning('请先勾选要打印的物料')
+      return
+    }
+    setMacroPrintTemplate('small')
+    const path = await getDefaultMacroScriptPath('small')
+    setMacroScriptPath(path)
+    if (window.electronAPI.getScreenInfo) {
+      try {
+        setScreenInfo(await window.electronAPI.getScreenInfo())
+      } catch {
+        setScreenInfo(null)
+      }
+    }
+    setMacroPrintModalOpen(true)
+  }, [selectedIds.length])
+
+  const handleMacroTemplateChange = useCallback(async (t: 'small' | 'large') => {
+    setMacroPrintTemplate(t)
+    const saved = getMacroScriptPath(t)
+    if (saved) {
+      setMacroScriptPath(saved)
+      return
+    }
+    const path = await getDefaultMacroScriptPath(t)
+    setMacroScriptPath(path)
+  }, [])
+
+  const handleConfirmMacroPrint = useCallback(async () => {
+    if (!window.electronAPI?.runMacroBatch) return
+    const items = getSelectedPickingItems().map(pickingItemToBatchPrintItem)
+    if (items.length === 0) {
+      message.warning('未找到有效勾选行')
+      return
+    }
+    const scriptPath = macroScriptPath.trim()
+    if (!scriptPath) {
+      message.warning('请填写宏脚本路径')
+      return
+    }
+    setMacroScriptPath(macroPrintTemplate, scriptPath)
+    setMacroRunning(true)
+    setMacroProgress({ current: 0, total: items.length })
+    const unsubscribeProgress = window.electronAPI.onMacroBatchProgress?.((p) => {
+      setMacroProgress(p)
+    })
+    try {
+      const result = await window.electronAPI.runMacroBatch(scriptPath, items)
+      setMacroPrintModalOpen(false)
+      if (result.aborted) {
+        message.warning(`宏已中止，已完成 ${result.success} 条`)
+      } else if (result.failed.length === 0) {
+        message.success(`宏打印已完成 ${result.success} 条`)
+      } else {
+        Modal.warning({
+          title: '部分宏打印失败',
+          content: (
+            <div style={{ maxHeight: 240, overflow: 'auto' }}>
+              {result.failed.map((f, i) => (
+                <div key={i} style={{ fontSize: 12 }}>
+                  {f.productCode}：{f.reason}
+                </div>
+              ))}
+            </div>
+          )
+        })
+      }
+    } catch (err) {
+      message.error(err instanceof Error ? err.message : '宏打印失败')
+    } finally {
+      unsubscribeProgress?.()
+      setMacroRunning(false)
+      setMacroProgress({ current: 0, total: 0 })
+    }
+  }, [getSelectedPickingItems, macroScriptPath, macroPrintTemplate])
+
+  const handleMacroKeyDown = useCallback((e: globalThis.KeyboardEvent) => {
+    if (e.key === 'Escape' && macroRunning) {
+      void window.electronAPI?.abortMacro()
+      message.info('正在中止宏…')
+    }
+  }, [macroRunning])
+
+  useEffect(() => {
+    if (!macroRunning) return
+    window.addEventListener('keydown', handleMacroKeyDown)
+    return () => window.removeEventListener('keydown', handleMacroKeyDown)
+  }, [macroRunning, handleMacroKeyDown])
+
+  const batchPrinterLabels = useMemo(
+    () => formatPrinterMapLabels(batchPrinterMap, batchPrinterList),
+    [batchPrinterMap, batchPrinterList]
+  )
+
   const columns = [
     {
       title: '序号',
@@ -1889,6 +2185,24 @@ function PickingOrderPage({
           <Button type="primary" size="large" icon={<SearchOutlined />} onClick={handleSearch} loading={loading}>
             查询
           </Button>
+          <Button
+            type="primary"
+            size="large"
+            icon={<PrinterOutlined />}
+            onClick={handleOpenBatchPrintModal}
+            disabled={selectedIds.length === 0}
+          >
+            一键打印
+          </Button>
+          {window.electronAPI?.runMacroBatch && (
+            <Button
+              size="large"
+              onClick={() => void handleOpenMacroPrintModal()}
+              disabled={selectedIds.length === 0}
+            >
+              宏打印
+            </Button>
+          )}
           <Button
             type="primary"
             size="large"
@@ -2677,6 +2991,132 @@ function PickingOrderPage({
           ))}
         </div>
       </Modal>
+
+      <HiddenBatchPrinter ref={hiddenBatchPrinterRef} />
+
+      <Modal
+        title="一键打印"
+        open={batchPrintModalOpen}
+        onCancel={() => !batchPrinting && setBatchPrintModalOpen(false)}
+        onOk={() => void handleConfirmBatchPrint()}
+        okText={batchPrinting ? `打印中 ${batchPrintProgress.current}/${batchPrintProgress.total}` : '开始打印'}
+        cancelText="取消"
+        confirmLoading={batchPrinting}
+        okButtonProps={{ disabled: batchPrinting && batchPrintProgress.total > 0 }}
+        destroyOnClose
+        width={480}
+      >
+        <div style={{ marginTop: 8 }}>
+          <div style={{ marginBottom: 12, fontSize: 12, color: '#666' }}>
+            将对已勾选的 {selectedIds.length} 条物料逐张出签并送入系统打印队列（不扣库存）。
+          </div>
+          <Radio.Group
+            value={batchPrintTemplate}
+            onChange={(e) => setBatchPrintTemplate(e.target.value)}
+            style={{ display: 'flex', flexDirection: 'column', gap: 8 }}
+          >
+            <Radio value="small">全部打印小标签（50×40mm）</Radio>
+            <Radio value="large">全部打印大标签（90×70mm）</Radio>
+          </Radio.Group>
+          {window.electronAPI?.getPrinters ? (
+            <div
+              style={{
+                marginTop: 16,
+                padding: 12,
+                background: '#fafafa',
+                borderRadius: 8,
+                border: '1px solid #f0f0f0'
+              }}
+            >
+              <div style={{ marginBottom: 8, fontWeight: 500, fontSize: 13 }}>打印机映射（可直接在此配置）</div>
+              <LabelPrinterSettingsForm
+                compact
+                value={batchPrinterMap}
+                onChange={handleBatchPrinterMapChange}
+                printerList={batchPrinterList}
+                loading={batchPrinterLoading}
+                onRefresh={() => void loadBatchPrinterConfig()}
+              />
+              <div style={{ marginTop: 8, fontSize: 12, color: '#888' }}>
+                当前：小标签 → {batchPrinterLabels.small}；大标签 → {batchPrinterLabels.large}
+                {!batchPrinterMap.small && !batchPrinterMap.large && (
+                  <span style={{ color: '#fa8c16' }}>（未配置时每条仍会弹出系统打印对话框）</span>
+                )}
+              </div>
+            </div>
+          ) : (
+            <div style={{ marginTop: 12, fontSize: 12, color: '#888' }}>
+              浏览器访问无法自动指定打印机，开始打印后将使用系统打印对话框。
+            </div>
+          )}
+        </div>
+      </Modal>
+
+      <Modal
+        title="宏打印（模拟人工操作）"
+        open={macroPrintModalOpen}
+        onCancel={() => !macroRunning && setMacroPrintModalOpen(false)}
+        onOk={() => void handleConfirmMacroPrint()}
+        okText={macroRunning ? '运行中…' : '开始宏打印'}
+        cancelText="取消"
+        confirmLoading={macroRunning}
+        destroyOnClose
+        width={520}
+      >
+        <div style={{ marginTop: 8 }}>
+          <Alert
+            type="warning"
+            showIcon
+            message="将接管本机键鼠，请勿操作电脑；按 Esc 可中止"
+            style={{ marginBottom: 12 }}
+          />
+          <div style={{ marginBottom: 12, fontSize: 12, color: '#666' }}>
+            已勾选 {selectedIds.length} 条；宏将按脚本坐标操作「标签打印」页面。
+            {screenInfo && (
+              <span>
+                {' '}
+                当前屏幕 {screenInfo.width}×{screenInfo.height}，缩放 {screenInfo.scaleFactor}
+              </span>
+            )}
+          </div>
+          <Radio.Group
+            value={macroPrintTemplate}
+            onChange={(e) => void handleMacroTemplateChange(e.target.value)}
+            style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 12 }}
+          >
+            <Radio value="small">宏脚本：小标签流程</Radio>
+            <Radio value="large">宏脚本：大标签流程</Radio>
+          </Radio.Group>
+          <div style={{ fontSize: 12, marginBottom: 4 }}>脚本路径（JSON）</div>
+          <Input
+            value={macroScriptPath}
+            onChange={(e) => setMacroScriptPath(e.target.value)}
+            placeholder="如 userData/macros/label-small.json"
+          />
+          <div style={{ marginTop: 8, fontSize: 11, color: '#999' }}>
+            可参考项目 macros/*.json.example，复制到本机 userData/macros 后按现场校准坐标。
+          </div>
+        </div>
+      </Modal>
+
+      {macroRunning && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(0,0,0,0.35)',
+            zIndex: 10000,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            color: '#fff',
+            fontSize: 18,
+            pointerEvents: 'none'
+          }}
+        >
+          宏运行中… 按 Esc 中止（{macroProgress.current}/{macroProgress.total}）
+        </div>
+      )}
 
       <style>{`
         .picking-row-picked td {

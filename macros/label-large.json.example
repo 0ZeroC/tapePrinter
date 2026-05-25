@@ -1,0 +1,25 @@
+{
+  "name": "大标签-默认流程",
+  "templateType": "large",
+  "scaleFactor": 1,
+  "prelude": [
+    { "type": "focusWindow", "titleContains": "库存管理" },
+    { "type": "click", "x": 80, "y": 200, "comment": "侧边栏-标签打印" },
+    { "type": "delay", "ms": 400 }
+  ],
+  "perItem": [
+    { "type": "click", "x": 420, "y": 120, "comment": "搜索框" },
+    { "type": "hotkey", "keys": ["ctrl", "a"] },
+    { "type": "type", "text": "{{productCode}}" },
+    { "type": "key", "key": "Enter" },
+    { "type": "delay", "ms": 600 },
+    { "type": "click", "x": 420, "y": 280, "comment": "点选第一条结果" },
+    { "type": "click", "x": 520, "y": 380, "comment": "数量" },
+    { "type": "type", "text": "{{quantity}}" },
+    { "type": "click", "x": 600, "y": 420, "comment": "大标签模板单选" },
+    { "type": "click", "x": 900, "y": 720, "comment": "打印标签按钮" },
+    { "type": "delay", "ms": 800 },
+    { "type": "click", "x": 1100, "y": 500, "comment": "打印对话框-确定" }
+  ],
+  "postlude": [{ "type": "delay", "ms": 200 }]
+}

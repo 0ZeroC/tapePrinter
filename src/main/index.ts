@@ -1,7 +1,15 @@
 import { app, shell, BrowserWindow, dialog, ipcMain } from 'electron'
 import { join } from 'path'
+import { existsSync, mkdirSync } from 'fs'
 import { initDatabase } from './database'
 import { startServer, getServerUrl, getLocalIP } from './server'
+import {
+  loadMacroScript,
+  runMacroBatch,
+  requestMacroAbort,
+  focusMainAppWindow,
+  type MacroBatchItem
+} from './macro-runner'
 
 const isDev = !app.isPackaged
 const DEFAULT_SERVER_PORT = 3456
@@ -64,20 +72,68 @@ const PAGE_SIZES: Record<string, { width: number; height: number }> = {
   large: { width: 90000, height: 70000 }
 }
 
-ipcMain.handle('print-label', async (event, templateType: string) => {
+ipcMain.handle('get-printers', async (event) => {
+  const win = BrowserWindow.fromWebContents(event.sender)
+  if (!win) return []
+  const printers = await win.webContents.getPrintersAsync()
+  return printers.map((p) => ({
+    name: p.name,
+    displayName: p.displayName || p.name,
+    isDefault: p.isDefault ?? false
+  }))
+})
+
+ipcMain.handle('print-label', async (event, templateType: string, deviceName?: string) => {
   const win = BrowserWindow.fromWebContents(event.sender)
   if (!win) throw new Error('找不到窗口')
 
   const pageSize = PAGE_SIZES[templateType] ?? PAGE_SIZES.small
+  const resolvedDevice = typeof deviceName === 'string' && deviceName.trim() ? deviceName.trim() : undefined
 
   await win.webContents.print({
-    silent: false,
+    silent: Boolean(resolvedDevice),
+    deviceName: resolvedDevice,
     printBackground: true,
     pageSize,
     margins: { marginType: 'none' },
     scaleFactor: 100
   })
 })
+
+ipcMain.handle('get-screen-info', async () => {
+  const { screen } = await import('electron')
+  const primary = screen.getPrimaryDisplay()
+  return {
+    width: primary.size.width,
+    height: primary.size.height,
+    scaleFactor: primary.scaleFactor
+  }
+})
+
+ipcMain.handle('get-macro-scripts-dir', () => {
+  const dir = join(app.getPath('userData'), 'macros')
+  if (!existsSync(dir)) {
+    mkdirSync(dir, { recursive: true })
+  }
+  return dir
+})
+
+ipcMain.handle('abort-macro', () => {
+  requestMacroAbort()
+})
+
+ipcMain.handle(
+  'run-macro-batch',
+  async (event, scriptPath: string, items: MacroBatchItem[]) => {
+    focusMainAppWindow()
+    const script = await loadMacroScript(scriptPath)
+    return runMacroBatch(script, items, (current, total) => {
+      if (!event.sender.isDestroyed()) {
+        event.sender.send('macro-batch-progress', { current, total })
+      }
+    })
+  }
+)
 
 app.whenReady().then(async () => {
   try {

@@ -10,6 +10,8 @@ interface LabelSmallProps {
   quantity?: number
   unit?: string
   descFontSizePt?: number
+  /** 二维码生成完成后回调（批量打印前等待） */
+  onQrReady?: () => void
 }
 
 function LabelSmall({
@@ -17,7 +19,8 @@ function LabelSmall({
   productCode,
   quantity,
   unit,
-  descFontSizePt = 8
+  descFontSizePt = 8,
+  onQrReady
 }: LabelSmallProps): JSX.Element {
   const [qrDataUrl, setQrDataUrl] = useState<string>('')
   const qrRequestIdRef = useRef(0)
@@ -41,23 +44,44 @@ function LabelSmall({
       return
     }
 
+    let cancelled = false
     QRCode.toDataURL(qrContent, {
       width: 200,
       margin: 1,
       errorCorrectionLevel: 'M'
     })
       .then((url) => {
-        // 仅应用最后一次请求结果，避免异步竞态导致二维码被旧结果覆盖
-        if (requestId === qrRequestIdRef.current) {
-          setQrDataUrl(url)
-        }
+        if (cancelled || requestId !== qrRequestIdRef.current) return
+        setQrDataUrl(url)
       })
       .catch(() => {
-        if (requestId === qrRequestIdRef.current) {
-          setQrDataUrl('')
-        }
+        if (cancelled || requestId !== qrRequestIdRef.current) return
+        setQrDataUrl('')
       })
+
+    return () => {
+      cancelled = true
+    }
   }, [displayCode])
+
+  // 批量打印：等 qrDataUrl 写入且图片节点就绪后再通知（避免 setJob 与 waitQr 竞态）
+  useEffect(() => {
+    if (!onQrReady) return
+    if (!displayCode.trim()) {
+      onQrReady()
+      return
+    }
+    if (!qrDataUrl) return
+
+    const img = document.createElement('img')
+    img.onload = () => {
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => onQrReady())
+      })
+    }
+    img.onerror = () => onQrReady()
+    img.src = qrDataUrl
+  }, [qrDataUrl, displayCode, onQrReady])
 
   return (
     <div className="label-small">
