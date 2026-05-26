@@ -533,9 +533,43 @@ export function deleteAllDrawingsForProductId(productId: number): void {
 // Products
 // ==============================
 
+const PRODUCT_LIST_SELECT = `SELECT p.*,
+    CAST((SELECT COUNT(1) FROM product_drawings d WHERE d.product_id = p.id) AS INTEGER) AS drawings_count
+    FROM products p`
+
+/** 单段、像物料编码的查询（扫码/手输编码），避免在描述等字段做 %编码% 误匹配相似编码 */
+function isLikelyMaterialCodeToken(token: string): boolean {
+  return token.length >= 8 && /^[A-Za-z0-9][A-Za-z0-9_-]*$/.test(token)
+}
+
+function searchProductsByMaterialCode(code: string): Product[] {
+  const exactStmt = db.prepare(`
+    ${PRODUCT_LIST_SELECT}
+    WHERE LOWER(p.code) = LOWER(?)
+    ORDER BY p.updated_at DESC LIMIT 100
+  `)
+  const exact = exactStmt.all(code) as Product[]
+  if (exact.length > 0) return exact
+
+  const escaped = code.replace(/[%_\\]/g, '\\$&')
+  const prefixStmt = db.prepare(`
+    ${PRODUCT_LIST_SELECT}
+    WHERE p.code LIKE ? ESCAPE '\\'
+    ORDER BY p.updated_at DESC LIMIT 100
+  `)
+  return prefixStmt.all(`${escaped}%`) as Product[]
+}
+
 export function searchProducts(query: string): Product[] {
   const keywords = query.trim().split(/\s+/).filter(Boolean)
   if (keywords.length === 0) return []
+
+  if (keywords.length === 1 && isLikelyMaterialCodeToken(keywords[0])) {
+    const codeHits = searchProductsByMaterialCode(keywords[0])
+    if (codeHits.length > 0) return codeHits
+    // 较长编码未命中编码列时不再全字段模糊，避免相似编码串进描述字段被误匹配
+    if (keywords[0].length >= 10) return []
+  }
 
   const fields = [
     'code',
@@ -568,9 +602,7 @@ export function searchProducts(query: string): Product[] {
     whereClauses.push(`(${conditions.join(' OR ')})`)
   }
 
-  const sql = `SELECT p.*,
-    CAST((SELECT COUNT(1) FROM product_drawings d WHERE d.product_id = p.id) AS INTEGER) AS drawings_count
-    FROM products p WHERE ${whereClauses.join(' AND ')} ORDER BY p.updated_at DESC LIMIT 100`
+  const sql = `${PRODUCT_LIST_SELECT} WHERE ${whereClauses.join(' AND ')} ORDER BY p.updated_at DESC LIMIT 100`
   const stmt = db.prepare(sql)
   return stmt.all(...params) as Product[]
 }
