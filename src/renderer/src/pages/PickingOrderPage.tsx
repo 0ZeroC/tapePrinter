@@ -105,6 +105,8 @@ interface CombinedLabelItem {
   unit?: string
 }
 
+type SubBoltPackingComponent = 'bolt' | 'mother' | 'flat'
+
 interface PickingOrderPageProps {
   onOpenPrintLabel?: (payload: {
     productCode: string
@@ -220,6 +222,17 @@ function PickingOrderPage({
   const [combineQtyMap, setCombineQtyMap] = useState<Record<number, number>>({})
   const [combineUnitMap, setCombineUnitMap] = useState<Record<number, '只' | '套'>>({})
   const [combineBoxNo, setCombineBoxNo] = useState<number | undefined>(undefined)
+
+  // 行内“双语标签拼箱”：从副转只规则选择螺栓、螺母、平垫
+  const [subBoltPackingOpen, setSubBoltPackingOpen] = useState(false)
+  const [subBoltPackingItem, setSubBoltPackingItem] = useState<PickingOrderItem | null>(null)
+  const [subBoltPackingRule, setSubBoltPackingRule] = useState<SubBoltRule | null>(null)
+  const [subBoltPackingComponents, setSubBoltPackingComponents] = useState<SubBoltPackingComponent[]>([])
+  const [subBoltPackingFlatCode, setSubBoltPackingFlatCode] = useState('')
+  const [subBoltPackingProductMap, setSubBoltPackingProductMap] = useState<Record<string, Product>>({})
+  const [subBoltPackingProductsLoading, setSubBoltPackingProductsLoading] = useState(false)
+  const [subBoltPackingSubmitting, setSubBoltPackingSubmitting] = useState(false)
+  const subBoltPackingLoadIdRef = useRef(0)
 
   // 出库选择 modal：拆 / 不拆
   const [outboundChoiceOpen, setOutboundChoiceOpen] = useState(false)
@@ -348,9 +361,9 @@ function PickingOrderPage({
   )
 
   useEffect(() => {
-    // 无库存查看权限的配货员仍须加载规则表，出库时才能按规则自动拆分；配置卡片仅对 canViewInventory 展示
     if (!user) return
-    if (!user.canViewInventory && !user.canManagePickingOrders) return
+    // 所有能进入配货单的用户都要加载：除出库拆分外，行内双语拼箱也依赖该规则。
+    // 规则配置卡片仍只对 canViewInventory 展示。
     void loadSubBoltRules()
   }, [user, loadSubBoltRules])
 
@@ -1332,6 +1345,143 @@ function PickingOrderPage({
     [onOpenBilingualLabel]
   )
 
+  const closeSubBoltPackingModal = useCallback(() => {
+    subBoltPackingLoadIdRef.current += 1
+    setSubBoltPackingOpen(false)
+    setSubBoltPackingItem(null)
+    setSubBoltPackingRule(null)
+    setSubBoltPackingComponents([])
+    setSubBoltPackingFlatCode('')
+    setSubBoltPackingProductMap({})
+    setSubBoltPackingProductsLoading(false)
+  }, [])
+
+  const handleOpenSubBoltPacking = useCallback(
+    async (record: PickingOrderItem) => {
+      if (!onOpenBilingualLabel) {
+        message.warning('当前环境不支持双语标签跳转')
+        return
+      }
+      const rule = getSubBoltRule(record.product_code)
+      if (!rule) {
+        message.warning(`副转只拆分规则中未找到编码「${record.product_code}」`)
+        return
+      }
+      const availableCount = [rule.boltCode, rule.motherCode, rule.flat97Code || rule.flat95Code].filter(Boolean).length
+      if (availableCount < 2) {
+        message.warning('该规则可用于拼箱的螺栓、螺母、平垫编码不足 2 项')
+        return
+      }
+      setSubBoltPackingItem(record)
+      setSubBoltPackingRule(rule)
+      setSubBoltPackingComponents([])
+      setSubBoltPackingFlatCode(rule.flat97Code || rule.flat95Code || '')
+      setSubBoltPackingProductMap({})
+      setSubBoltPackingOpen(true)
+
+      const codes = Array.from(
+        new Set([rule.boltCode, rule.motherCode, rule.flat97Code, rule.flat95Code].filter((code): code is string => !!code))
+      )
+      const loadId = ++subBoltPackingLoadIdRef.current
+      setSubBoltPackingProductsLoading(true)
+      try {
+        const entries = await Promise.all(
+          codes.map(async (code) => {
+            const result = await api.getProductByCode(code)
+            return [code, result.success && result.data ? result.data : undefined] as const
+          })
+        )
+        if (subBoltPackingLoadIdRef.current === loadId) {
+          setSubBoltPackingProductMap(
+            Object.fromEntries(entries.filter((entry): entry is readonly [string, Product] => !!entry[1]))
+          )
+        }
+      } finally {
+        if (subBoltPackingLoadIdRef.current === loadId) {
+          setSubBoltPackingProductsLoading(false)
+        }
+      }
+    },
+    [getSubBoltRule, onOpenBilingualLabel]
+  )
+
+  const toggleSubBoltPackingComponent = useCallback(
+    (component: SubBoltPackingComponent, checked: boolean) => {
+      setSubBoltPackingComponents((prev) =>
+        checked
+          ? (prev.includes(component) ? prev : [...prev, component])
+          : prev.filter((item) => item !== component)
+      )
+    },
+    []
+  )
+
+  const handleConfirmSubBoltPacking = useCallback(async () => {
+    if (!subBoltPackingItem || !subBoltPackingRule || !onOpenBilingualLabel) return
+    if (subBoltPackingComponents.length < 2) {
+      message.warning('请至少勾选 2 项进行拼箱')
+      return
+    }
+
+    const selectedRows: Array<{ component: SubBoltPackingComponent; code: string }> = []
+    const addSelected = (component: SubBoltPackingComponent, code?: string) => {
+      if (subBoltPackingComponents.includes(component) && code) {
+        selectedRows.push({ component, code })
+      }
+    }
+    addSelected('bolt', subBoltPackingRule.boltCode)
+    addSelected('mother', subBoltPackingRule.motherCode)
+    addSelected('flat', subBoltPackingFlatCode)
+
+    if (selectedRows.length < 2) {
+      message.warning('所选项缺少有效编码，请检查副转只拆分规则')
+      return
+    }
+
+    setSubBoltPackingSubmitting(true)
+    try {
+      const products = await Promise.all(
+        selectedRows.map(async ({ code }) => {
+          if (subBoltPackingProductMap[code]) return subBoltPackingProductMap[code]
+          const result = await api.getProductByCode(code)
+          return result.success ? result.data : undefined
+        })
+      )
+      const bilingualCombinedItems: NonNullable<PrintPagePreset['bilingualCombinedItems']> =
+        selectedRows.map(({ code }, index) => ({
+          productCode: code,
+          descriptionZh: products[index]?.description?.trim() || code,
+          descriptionEn: products[index]?.description_en?.trim() || '',
+          // 按需求使用配货行应出数量，而不是剩余待配数量
+          quantity: subBoltPackingItem.quantity,
+          unit: '只'
+        }))
+      const first = bilingualCombinedItems[0]
+
+      onOpenBilingualLabel({
+        productCode: first.productCode,
+        orderNo: subBoltPackingItem.order_no,
+        projectName: subBoltPackingItem.project_name,
+        quantity: subBoltPackingItem.quantity,
+        unit: '只',
+        bilingualCombinedItems
+      })
+      closeSubBoltPackingModal()
+    } catch {
+      message.error('读取拼箱物料信息失败，请稍后重试')
+    } finally {
+      setSubBoltPackingSubmitting(false)
+    }
+  }, [
+    closeSubBoltPackingModal,
+    onOpenBilingualLabel,
+    subBoltPackingComponents,
+    subBoltPackingFlatCode,
+    subBoltPackingItem,
+    subBoltPackingProductMap,
+    subBoltPackingRule
+  ])
+
   const handleOpenCombinedLabel = useCallback(() => {
     if (!onOpenPrintLabel) {
       message.warning('当前环境不支持打标签跳转')
@@ -2026,13 +2176,22 @@ function PickingOrderPage({
               打标签
             </Button>
             {onOpenBilingualLabel && (
-              <Button
-                type="link"
-                size="small"
-                onClick={() => void handleOpenBilingualLabelRow(record)}
-              >
-                双语标签
-              </Button>
+              <>
+                <Button
+                  type="link"
+                  size="small"
+                  onClick={() => void handleOpenBilingualLabelRow(record)}
+                >
+                  双语标签
+                </Button>
+                <Button
+                  type="link"
+                  size="small"
+                  onClick={() => void handleOpenSubBoltPacking(record)}
+                >
+                  双语标签拼箱
+                </Button>
+              </>
             )}
           </Space>
         </Space>
@@ -2596,6 +2755,84 @@ function PickingOrderPage({
           ]}
         />
       </Drawer>
+
+      {/* 行内双语拼箱：选择副转只规则中的组件 */}
+      <Modal
+        title="双语标签拼箱"
+        open={subBoltPackingOpen}
+        onCancel={closeSubBoltPackingModal}
+        onOk={() => void handleConfirmSubBoltPacking()}
+        okText="进入双语标签"
+        cancelText="取消"
+        confirmLoading={subBoltPackingSubmitting}
+        destroyOnClose
+        width={520}
+      >
+        {subBoltPackingItem && subBoltPackingRule && (
+          <Space direction="vertical" size="middle" style={{ width: '100%', paddingTop: 8 }}>
+            <Alert
+              type="info"
+              showIcon
+              message={
+                <span>
+                  原物料 <Text code>{subBoltPackingItem.product_code}</Text>，请勾选 2～3 项进行拼箱；各项数量默认均为 {subBoltPackingItem.quantity} 只。
+                </span>
+              }
+            />
+            {subBoltPackingProductsLoading && <Text type="secondary">正在加载物料描述…</Text>}
+            <Checkbox
+              checked={subBoltPackingComponents.includes('bolt')}
+              disabled={!subBoltPackingRule.boltCode}
+              onChange={(e) => toggleSubBoltPackingComponent('bolt', e.target.checked)}
+            >
+              螺栓：<Text code>{subBoltPackingRule.boltCode || '未配置'}</Text>
+              {subBoltPackingRule.boltCode && (
+                <Text type="secondary"> — {subBoltPackingProductMap[subBoltPackingRule.boltCode]?.description || '未找到物料描述'}</Text>
+              )}
+            </Checkbox>
+            <Checkbox
+              checked={subBoltPackingComponents.includes('mother')}
+              disabled={!subBoltPackingRule.motherCode}
+              onChange={(e) => toggleSubBoltPackingComponent('mother', e.target.checked)}
+            >
+              螺母：<Text code>{subBoltPackingRule.motherCode || '未配置'}</Text>
+              {subBoltPackingRule.motherCode && (
+                <Text type="secondary"> — {subBoltPackingProductMap[subBoltPackingRule.motherCode]?.description || '未找到物料描述'}</Text>
+              )}
+            </Checkbox>
+            <div>
+              <Checkbox
+                checked={subBoltPackingComponents.includes('flat')}
+                disabled={!subBoltPackingRule.flat97Code && !subBoltPackingRule.flat95Code}
+                onChange={(e) => toggleSubBoltPackingComponent('flat', e.target.checked)}
+              >
+                平垫
+              </Checkbox>
+              {(subBoltPackingRule.flat97Code || subBoltPackingRule.flat95Code) && (
+                <Radio.Group
+                  value={subBoltPackingFlatCode}
+                  onChange={(e) => setSubBoltPackingFlatCode(e.target.value)}
+                  disabled={!subBoltPackingComponents.includes('flat')}
+                  style={{ display: 'flex', flexDirection: 'column', gap: 6, margin: '8px 0 0 24px' }}
+                >
+                  {subBoltPackingRule.flat97Code && (
+                    <Radio value={subBoltPackingRule.flat97Code}>
+                      平垫 97：<Text code>{subBoltPackingRule.flat97Code}</Text>
+                      <Text type="secondary"> — {subBoltPackingProductMap[subBoltPackingRule.flat97Code]?.description || '未找到物料描述'}</Text>
+                    </Radio>
+                  )}
+                  {subBoltPackingRule.flat95Code && (
+                    <Radio value={subBoltPackingRule.flat95Code}>
+                      平垫 95：<Text code>{subBoltPackingRule.flat95Code}</Text>
+                      <Text type="secondary"> — {subBoltPackingProductMap[subBoltPackingRule.flat95Code]?.description || '未找到物料描述'}</Text>
+                    </Radio>
+                  )}
+                </Radio.Group>
+              )}
+            </div>
+          </Space>
+        )}
+      </Modal>
 
       {/* 副转只：平垫97/95选择 */}
       <Modal

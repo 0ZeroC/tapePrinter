@@ -410,6 +410,15 @@ function PrintPage({ preset, mode = 'normal' }: PrintPageProps): ReactElement {
   )
   const effectivePrintQty = bilingualCombinedItems?.[0]?.quantity ?? quantity
 
+  const updateBilingualCombinedItem = useCallback(
+    (index: number, patch: Partial<BilingualLabelItem>) => {
+      setBilingualCombinedItems((prev) =>
+        prev?.map((item, itemIndex) => (itemIndex === index ? { ...item, ...patch } : item)) ?? null
+      )
+    },
+    []
+  )
+
   const columns = [
     { title: '物料编码', dataIndex: 'code', key: 'code', width: 140 },
     { title: '物料描述', dataIndex: 'description', key: 'description', width: 140 },
@@ -546,8 +555,62 @@ function PrintPage({ preset, mode = 'normal' }: PrintPageProps): ReactElement {
             </Space>
             )}
             {isBilingualMode && (bilingualCombinedItems?.length ?? 0) > 0 && (
-              <div style={{ color: '#666', marginBottom: 12, fontSize: 13 }}>
-                已载入中英文拼箱 {bilingualCombinedItems!.length} 行；数量在配货单拼箱时填写。
+              <div style={{ marginBottom: 12 }}>
+                <div style={{ color: '#666', marginBottom: 10, fontSize: 13 }}>
+                  已载入中英文拼箱 {bilingualCombinedItems!.length} 行，可在这里继续调整编码、描述、数量和单位。
+                </div>
+                <Space direction="vertical" size="small" style={{ width: '100%' }}>
+                  {bilingualCombinedItems!.map((item, index) => (
+                    <Card key={index} size="small" title={`拼箱物料 ${index + 1}`}>
+                      <Space direction="vertical" size="small" style={{ width: '100%' }}>
+                        <Input
+                          addonBefore="编码"
+                          value={item.productCode}
+                          onChange={(e) => updateBilingualCombinedItem(index, { productCode: e.target.value })}
+                        />
+                        <Input
+                          addonBefore="中文"
+                          value={item.descriptionZh}
+                          onChange={(e) => updateBilingualCombinedItem(index, { descriptionZh: e.target.value })}
+                        />
+                        <Input
+                          addonBefore="英文"
+                          value={item.descriptionEn}
+                          onChange={(e) => updateBilingualCombinedItem(index, { descriptionEn: e.target.value })}
+                        />
+                        <Space wrap>
+                          <span>数量：</span>
+                          <InputNumber
+                            min={1}
+                            max={999999}
+                            value={item.quantity}
+                            onChange={(value) => updateBilingualCombinedItem(index, { quantity: value || 1 })}
+                            style={{ width: 120 }}
+                          />
+                          <Select
+                            value={item.unit || '只'}
+                            onChange={(value) => updateBilingualCombinedItem(index, { unit: value })}
+                            style={{ width: 80 }}
+                            options={[
+                              { value: '只', label: '只' },
+                              { value: '套', label: '套' }
+                            ]}
+                          />
+                        </Space>
+                      </Space>
+                    </Card>
+                  ))}
+                  <div style={{ display: 'flex', alignItems: 'center' }}>
+                    <span style={{ marginRight: 8 }}>箱号：</span>
+                    <InputNumber
+                      min={1}
+                      value={boxNo}
+                      onChange={(value) => setBoxNo(value ?? undefined)}
+                      placeholder="选填"
+                      style={{ width: 120 }}
+                    />
+                  </div>
+                </Space>
               </div>
             )}
             {((selectedProduct && !isBilingualMode) || (isBilingualMode && (bilingualCombinedItems?.length ?? 0) === 0)) && <Divider style={{ margin: '12px 0' }} />}
