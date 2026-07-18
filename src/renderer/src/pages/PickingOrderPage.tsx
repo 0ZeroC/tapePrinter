@@ -105,7 +105,7 @@ interface CombinedLabelItem {
   unit?: string
 }
 
-type SubBoltPackingComponent = 'bolt' | 'mother' | 'flat'
+type SubBoltPackingComponent = 'bolt' | 'mother' | 'flat' | 'spring'
 
 interface PickingOrderPageProps {
   onOpenPrintLabel?: (payload: {
@@ -1367,9 +1367,14 @@ function PickingOrderPage({
         message.warning(`副转只拆分规则中未找到编码「${record.product_code}」`)
         return
       }
-      const availableCount = [rule.boltCode, rule.motherCode, rule.flat97Code || rule.flat95Code].filter(Boolean).length
+      const availableCount = [
+        rule.boltCode,
+        rule.motherCode,
+        rule.flat97Code || rule.flat95Code,
+        rule.springCode
+      ].filter(Boolean).length
       if (availableCount < 2) {
-        message.warning('该规则可用于拼箱的螺栓、螺母、平垫编码不足 2 项')
+        message.warning('该规则可用于拼箱的螺栓、螺母、平垫、弹垫编码不足 2 项')
         return
       }
       setSubBoltPackingItem(record)
@@ -1380,7 +1385,15 @@ function PickingOrderPage({
       setSubBoltPackingOpen(true)
 
       const codes = Array.from(
-        new Set([rule.boltCode, rule.motherCode, rule.flat97Code, rule.flat95Code].filter((code): code is string => !!code))
+        new Set(
+          [
+            rule.boltCode,
+            rule.motherCode,
+            rule.flat97Code,
+            rule.flat95Code,
+            rule.springCode
+          ].filter((code): code is string => !!code)
+        )
       )
       const loadId = ++subBoltPackingLoadIdRef.current
       setSubBoltPackingProductsLoading(true)
@@ -1422,6 +1435,10 @@ function PickingOrderPage({
       message.warning('请至少勾选 2 项进行拼箱')
       return
     }
+    if (subBoltPackingComponents.length > 3) {
+      message.warning('双语拼箱最多勾选 3 项')
+      return
+    }
 
     const selectedRows: Array<{ component: SubBoltPackingComponent; code: string }> = []
     const addSelected = (component: SubBoltPackingComponent, code?: string) => {
@@ -1432,6 +1449,7 @@ function PickingOrderPage({
     addSelected('bolt', subBoltPackingRule.boltCode)
     addSelected('mother', subBoltPackingRule.motherCode)
     addSelected('flat', subBoltPackingFlatCode)
+    addSelected('spring', subBoltPackingRule.springCode)
 
     if (selectedRows.length < 2) {
       message.warning('所选项缺少有效编码，请检查副转只拆分规则')
@@ -2782,7 +2800,10 @@ function PickingOrderPage({
             {subBoltPackingProductsLoading && <Text type="secondary">正在加载物料描述…</Text>}
             <Checkbox
               checked={subBoltPackingComponents.includes('bolt')}
-              disabled={!subBoltPackingRule.boltCode}
+              disabled={
+                !subBoltPackingRule.boltCode ||
+                (!subBoltPackingComponents.includes('bolt') && subBoltPackingComponents.length >= 3)
+              }
               onChange={(e) => toggleSubBoltPackingComponent('bolt', e.target.checked)}
             >
               螺栓：<Text code>{subBoltPackingRule.boltCode || '未配置'}</Text>
@@ -2792,7 +2813,10 @@ function PickingOrderPage({
             </Checkbox>
             <Checkbox
               checked={subBoltPackingComponents.includes('mother')}
-              disabled={!subBoltPackingRule.motherCode}
+              disabled={
+                !subBoltPackingRule.motherCode ||
+                (!subBoltPackingComponents.includes('mother') && subBoltPackingComponents.length >= 3)
+              }
               onChange={(e) => toggleSubBoltPackingComponent('mother', e.target.checked)}
             >
               螺母：<Text code>{subBoltPackingRule.motherCode || '未配置'}</Text>
@@ -2803,7 +2827,10 @@ function PickingOrderPage({
             <div>
               <Checkbox
                 checked={subBoltPackingComponents.includes('flat')}
-                disabled={!subBoltPackingRule.flat97Code && !subBoltPackingRule.flat95Code}
+                disabled={
+                  (!subBoltPackingRule.flat97Code && !subBoltPackingRule.flat95Code) ||
+                  (!subBoltPackingComponents.includes('flat') && subBoltPackingComponents.length >= 3)
+                }
                 onChange={(e) => toggleSubBoltPackingComponent('flat', e.target.checked)}
               >
                 平垫
@@ -2830,6 +2857,21 @@ function PickingOrderPage({
                 </Radio.Group>
               )}
             </div>
+            {subBoltPackingRule.springCode && (
+              <Checkbox
+                checked={subBoltPackingComponents.includes('spring')}
+                disabled={
+                  !subBoltPackingComponents.includes('spring') &&
+                  subBoltPackingComponents.length >= 3
+                }
+                onChange={(e) => toggleSubBoltPackingComponent('spring', e.target.checked)}
+              >
+                弹垫：<Text code>{subBoltPackingRule.springCode}</Text>
+                <Text type="secondary">
+                  {' '}— {subBoltPackingProductMap[subBoltPackingRule.springCode]?.description || '未找到物料描述'}
+                </Text>
+              </Checkbox>
+            )}
           </Space>
         )}
       </Modal>
