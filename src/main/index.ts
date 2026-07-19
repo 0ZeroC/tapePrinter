@@ -10,6 +10,7 @@ import {
   focusMainAppWindow,
   type MacroBatchItem
 } from './macro-runner'
+import { autoConfirmPrintDialog, type AutoConfirmPrintOptions } from './print-dialog-helper'
 
 const isDev = !app.isPackaged
 const DEFAULT_SERVER_PORT = 3456
@@ -120,6 +121,10 @@ ipcMain.handle('get-macro-scripts-dir', () => {
 
 ipcMain.handle('abort-macro', () => {
   requestMacroAbort()
+})
+
+ipcMain.handle('auto-confirm-print-dialog', async (_event, options?: AutoConfirmPrintOptions) => {
+  return autoConfirmPrintDialog(options ?? {})
 })
 
 ipcMain.handle(

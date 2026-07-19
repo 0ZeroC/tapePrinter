@@ -15,6 +15,13 @@ declare global {
       onMacroBatchProgress: (
         callback: (payload: { current: number; total: number }) => void
       ) => () => void
+      autoConfirmPrintDialog: (options?: {
+        delayMs?: number
+        useEnter?: boolean
+        clickX?: number
+        clickY?: number
+        windowTitleContains?: string
+      }) => Promise<{ ok: boolean; message?: string }>
     }
   }
 }

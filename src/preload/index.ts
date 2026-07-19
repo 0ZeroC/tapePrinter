@@ -13,6 +13,16 @@ contextBridge.exposeInMainWorld('electronAPI', {
   runMacroBatch: (scriptPath: string, items: MacroBatchItem[]): Promise<MacroBatchResult> =>
     ipcRenderer.invoke('run-macro-batch', scriptPath, items),
   abortMacro: (): Promise<void> => ipcRenderer.invoke('abort-macro'),
+  autoConfirmPrintDialog: (
+    options?: {
+      delayMs?: number
+      useEnter?: boolean
+      clickX?: number
+      clickY?: number
+      windowTitleContains?: string
+    }
+  ): Promise<{ ok: boolean; message?: string }> =>
+    ipcRenderer.invoke('auto-confirm-print-dialog', options),
   onMacroBatchProgress: (
     callback: (payload: { current: number; total: number }) => void
   ): (() => void) => {

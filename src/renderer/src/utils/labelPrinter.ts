@@ -1,3 +1,5 @@
+import { scheduleAutoConfirmAfterPrint } from './printDialogHelper'
+
 export type LabelTemplateType = 'small' | 'large'
 
 export interface LabelPrinterMap {
@@ -57,9 +59,15 @@ export async function printLabelByTemplate(templateType: LabelTemplateType): Pro
 
   if (window.electronAPI?.printLabel) {
     await window.electronAPI.printLabel(templateType, deviceName)
+    if (!deviceName) {
+      scheduleAutoConfirmAfterPrint()
+    }
     return { usedMapping: Boolean(deviceName), deviceName }
   }
 
+  // Browser print dialogs can block JavaScript until the dialog closes.
+  // Notify the local helper first so its delayed Enter is already scheduled.
+  scheduleAutoConfirmAfterPrint()
   window.print()
   return { usedMapping: false }
 }

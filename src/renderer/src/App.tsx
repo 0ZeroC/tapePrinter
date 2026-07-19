@@ -10,7 +10,8 @@ import {
   UserOutlined,
   LogoutOutlined,
   KeyOutlined,
-  UnorderedListOutlined
+  UnorderedListOutlined,
+  ToolOutlined
 } from '@ant-design/icons'
 import { useAuth } from './contexts/AuthContext'
 import { api } from './utils/api'
@@ -24,6 +25,7 @@ import StockPage from './pages/StockPage'
 import UserManagePage from './pages/UserManagePage'
 import PickingOrderPage from './pages/PickingOrderPage'
 import MergedDeliverySheetPage from './pages/MergedDeliverySheetPage'
+import PrintHelperPage from './pages/PrintHelperPage'
 
 const { Sider, Content } = Layout
 
@@ -32,6 +34,7 @@ type PageKey =
   | 'packingPrint'
   | 'bilingualPrint'
   | 'bilingualPackingPrint'
+  | 'printHelper'
   | 'data'
   | 'stockIn'
   | 'stockOut'
@@ -81,6 +84,7 @@ function App(): JSX.Element {
       icon: <PrinterOutlined />,
       label: '双语拼箱标签'
     },
+    { key: 'printHelper' as PageKey, icon: <ToolOutlined />, label: '打印助手' },
     ...(user.canViewInventory
       ? [
           { key: 'stockIn' as PageKey, icon: <ImportOutlined />, label: '入库' },
@@ -137,6 +141,8 @@ function App(): JSX.Element {
         return <PrintPage preset={printPreset} mode="bilingual" />
       case 'bilingualPackingPrint':
         return <BilingualPackingPrintPage preset={printPreset} />
+      case 'printHelper':
+        return <PrintHelperPage />
       case 'stockIn':
         return user.canViewInventory ? <StockInPage /> : <PrintPage />
       case 'stockOut':
