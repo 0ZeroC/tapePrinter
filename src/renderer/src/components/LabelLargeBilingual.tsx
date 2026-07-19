@@ -116,6 +116,60 @@ function CompactBilingualLine({
   )
 }
 
+function DateAndBoxRow({
+  date,
+  boxNo,
+  dateFontSizePt,
+  boxFontSizePt
+}: {
+  date: string
+  boxNo?: number
+  dateFontSizePt: number
+  boxFontSizePt: number
+}): ReactElement {
+  return (
+    <div
+      style={{
+        display: 'flex',
+        alignItems: 'flex-start',
+        justifyContent: 'space-between',
+        width: '100%',
+        gap: '10mm',
+        marginBottom: '1.6mm',
+        lineHeight: 1.36,
+        whiteSpace: 'nowrap'
+      }}
+    >
+      <div
+        style={{
+          display: 'flex',
+          flexShrink: 0,
+          gap: '2mm',
+          fontSize: `${dateFontSizePt}pt`,
+          whiteSpace: 'nowrap'
+        }}
+      >
+        <div style={{ flexShrink: 0, fontWeight: 500 }}>日期/Date</div>
+        <div>{date}</div>
+      </div>
+      {boxNo != null && boxNo > 0 && (
+        <div
+          style={{
+            display: 'flex',
+            flexShrink: 0,
+            gap: '2mm',
+            fontSize: `${boxFontSizePt}pt`,
+            whiteSpace: 'nowrap'
+          }}
+        >
+          <div style={{ fontWeight: 500 }}>箱号/Box</div>
+          <div>{boxNo}#</div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 function LabelLargeBilingual({
   product,
   productCode,
@@ -199,10 +253,12 @@ function LabelLargeBilingual({
                   </div>
                 )
               })}
-              <TableStyleFieldRow label="日期/Date" value={today} fontSizePt={metaFont} />
-              {boxNo != null && boxNo > 0 && (
-                <TableStyleFieldRow label="箱号/Box" value={`${boxNo}#`} fontSizePt={boxFont} />
-              )}
+              <DateAndBoxRow
+                date={today}
+                boxNo={boxNo}
+                dateFontSizePt={metaFont}
+                boxFontSizePt={boxFont}
+              />
             </>
           ) : (
             <>
@@ -219,17 +275,25 @@ function LabelLargeBilingual({
                 value={qtyText(qty, u)}
                 fontSizePt={descEn}
               />
-              <TableStyleFieldRow label="日期/Date" value={today} fontSizePt={metaFont} />
-              {boxNo != null && boxNo > 0 && (
-                <TableStyleFieldRow label="箱号/Box" value={`${boxNo}#`} fontSizePt={boxFont} />
-              )}
+              <DateAndBoxRow
+                date={today}
+                boxNo={boxNo}
+                dateFontSizePt={metaFont}
+                boxFontSizePt={boxFont}
+              />
             </>
           )}
         </div>
-        <div className="label-right">
+        <div className={`label-right${isCombined ? ' label-right-combined' : ''}`}>
           {!isCombined && <img src={stampImg} alt="检验合格" className="label-stamp" />}
           <div className="label-qrcode">
-            <QRCodeSVG value={qrContent} size={isCombined ? 70 : 80} level="M" marginSize={1} includeMargin={false} />
+            <QRCodeSVG
+              value={qrContent}
+              size={isCombined ? 52 : 64}
+              level="M"
+              marginSize={1}
+              includeMargin={false}
+            />
           </div>
         </div>
       </div>

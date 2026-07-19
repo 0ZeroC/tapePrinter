@@ -326,6 +326,8 @@
   flex: 1;
   display: flex;
   gap: 0;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .label-large .label-details {
@@ -402,12 +404,37 @@
   justify-content: center;
   align-items: center;
   margin-top: -1.5mm;
+  overflow: hidden;
 }
 
 .label-large .label-qrcode img,
 .label-large .label-qrcode svg {
   max-width: 21mm;
   max-height: 21mm;
+}
+
+.label-large-bilingual .label-right-combined {
+  width: 19mm;
+  max-width: 19mm;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.label-large-bilingual .label-right-combined .label-qrcode {
+  width: 16mm;
+  height: 16mm;
+  max-width: 16mm;
+  max-height: 16mm;
+  margin-top: 0;
+  flex-shrink: 0;
+}
+
+.label-large-bilingual .label-right-combined .label-qrcode svg {
+  display: block;
+  width: 14mm;
+  height: 14mm;
+  max-width: 14mm;
+  max-height: 14mm;
 }
 
 

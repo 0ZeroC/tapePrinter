@@ -15,6 +15,7 @@ import {
 import { useAuth } from './contexts/AuthContext'
 import { api } from './utils/api'
 import LoginPage from './pages/LoginPage'
+import BilingualPackingPrintPage from './pages/BilingualPackingPrintPage'
 import PrintPage, { type PrintPagePreset } from './pages/PrintPage'
 import DataPage from './pages/DataPage'
 import StockInPage from './pages/StockInPage'
@@ -30,6 +31,7 @@ type PageKey =
   | 'print'
   | 'packingPrint'
   | 'bilingualPrint'
+  | 'bilingualPackingPrint'
   | 'data'
   | 'stockIn'
   | 'stockOut'
@@ -74,6 +76,11 @@ function App(): JSX.Element {
     { key: 'print' as PageKey, icon: <PrinterOutlined />, label: '标签打印' },
     { key: 'packingPrint' as PageKey, icon: <PrinterOutlined />, label: '打包标签' },
     { key: 'bilingualPrint' as PageKey, icon: <PrinterOutlined />, label: '双语标签' },
+    {
+      key: 'bilingualPackingPrint' as PageKey,
+      icon: <PrinterOutlined />,
+      label: '双语拼箱标签'
+    },
     ...(user.canViewInventory
       ? [
           { key: 'stockIn' as PageKey, icon: <ImportOutlined />, label: '入库' },
@@ -111,6 +118,11 @@ function App(): JSX.Element {
     setCurrentPage('bilingualPrint')
   }
 
+  const handleOpenBilingualPackingFromPicking = (payload: PrintPagePreset): void => {
+    setPrintPreset(payload)
+    setCurrentPage('bilingualPackingPrint')
+  }
+
   const handlePickingOrderLoaded = (orderNo: string): void => {
     setLastPickingOrderNo(orderNo)
   }
@@ -123,6 +135,8 @@ function App(): JSX.Element {
         return <PrintPage preset={printPreset} mode="packing" />
       case 'bilingualPrint':
         return <PrintPage preset={printPreset} mode="bilingual" />
+      case 'bilingualPackingPrint':
+        return <BilingualPackingPrintPage preset={printPreset} />
       case 'stockIn':
         return user.canViewInventory ? <StockInPage /> : <PrintPage />
       case 'stockOut':
@@ -136,6 +150,7 @@ function App(): JSX.Element {
           <PickingOrderPage
             onOpenPrintLabel={handleOpenPrintFromPicking}
             onOpenBilingualLabel={handleOpenBilingualFromPicking}
+            onOpenBilingualPackingLabel={handleOpenBilingualPackingFromPicking}
             initialOrderNo={lastPickingOrderNo}
             onOrderLoaded={handlePickingOrderLoaded}
           />

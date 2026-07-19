@@ -118,6 +118,7 @@ interface PickingOrderPageProps {
     boxNo?: number
   }) => void
   onOpenBilingualLabel?: (payload: PrintPagePreset) => void
+  onOpenBilingualPackingLabel?: (payload: PrintPagePreset) => void
   initialOrderNo?: string
   onOrderLoaded?: (orderNo: string) => void
 }
@@ -164,6 +165,7 @@ const buildBarcodeDataUrl = (value: string): string => {
 function PickingOrderPage({
   onOpenPrintLabel,
   onOpenBilingualLabel,
+  onOpenBilingualPackingLabel,
   initialOrderNo,
   onOrderLoaded
 }: PickingOrderPageProps): JSX.Element {
@@ -1358,7 +1360,7 @@ function PickingOrderPage({
 
   const handleOpenSubBoltPacking = useCallback(
     async (record: PickingOrderItem) => {
-      if (!onOpenBilingualLabel) {
+      if (!onOpenBilingualPackingLabel) {
         message.warning('当前环境不支持双语标签跳转')
         return
       }
@@ -1415,7 +1417,7 @@ function PickingOrderPage({
         }
       }
     },
-    [getSubBoltRule, onOpenBilingualLabel]
+    [getSubBoltRule, onOpenBilingualPackingLabel]
   )
 
   const toggleSubBoltPackingComponent = useCallback(
@@ -1430,7 +1432,7 @@ function PickingOrderPage({
   )
 
   const handleConfirmSubBoltPacking = useCallback(async () => {
-    if (!subBoltPackingItem || !subBoltPackingRule || !onOpenBilingualLabel) return
+    if (!subBoltPackingItem || !subBoltPackingRule || !onOpenBilingualPackingLabel) return
     if (subBoltPackingComponents.length < 2) {
       message.warning('请至少勾选 2 项进行拼箱')
       return
@@ -1476,7 +1478,7 @@ function PickingOrderPage({
         }))
       const first = bilingualCombinedItems[0]
 
-      onOpenBilingualLabel({
+      onOpenBilingualPackingLabel({
         productCode: first.productCode,
         orderNo: subBoltPackingItem.order_no,
         projectName: subBoltPackingItem.project_name,
@@ -1492,7 +1494,7 @@ function PickingOrderPage({
     }
   }, [
     closeSubBoltPackingModal,
-    onOpenBilingualLabel,
+    onOpenBilingualPackingLabel,
     subBoltPackingComponents,
     subBoltPackingFlatCode,
     subBoltPackingItem,
@@ -1545,7 +1547,7 @@ function PickingOrderPage({
   }, [onOpenPrintLabel, selectedIds, currentOrderNo, orderItems])
 
   const handleOpenBilingualCombined = useCallback(() => {
-    if (!onOpenBilingualLabel) {
+    if (!onOpenBilingualPackingLabel) {
       message.warning('当前环境不支持双语标签跳转')
       return
     }
@@ -1585,11 +1587,11 @@ function PickingOrderPage({
     setCombineQtyMap(initialQty)
     setCombineUnitMap(initialUnit)
     setCombineModalOpen(true)
-  }, [onOpenBilingualLabel, selectedIds, currentOrderNo, orderItems])
+  }, [onOpenBilingualPackingLabel, selectedIds, currentOrderNo, orderItems])
 
   const handleConfirmCombinedModal = useCallback(async () => {
     if (combineModalForBilingual) {
-      if (!onOpenBilingualLabel) {
+      if (!onOpenBilingualPackingLabel) {
         message.warning('当前环境不支持双语标签跳转')
         return
       }
@@ -1627,7 +1629,7 @@ function PickingOrderPage({
       }
       const first = bilingualCombinedItems[0]
       const firstWithCode = withProject[0]
-      onOpenBilingualLabel({
+      onOpenBilingualPackingLabel({
         productCode: first?.productCode ?? combineItems[0]?.product_code ?? '',
         orderNo: currentOrderNo,
         projectName: firstWithCode?.projectName ?? combineItems[0]?.project_name ?? '',
@@ -1685,7 +1687,7 @@ function PickingOrderPage({
     setCombineModalOpen(false)
   }, [
     combineModalForBilingual,
-    onOpenBilingualLabel,
+    onOpenBilingualPackingLabel,
     onOpenPrintLabel,
     currentOrderNo,
     combineItems,
@@ -2194,22 +2196,22 @@ function PickingOrderPage({
               打标签
             </Button>
             {onOpenBilingualLabel && (
-              <>
-                <Button
-                  type="link"
-                  size="small"
-                  onClick={() => void handleOpenBilingualLabelRow(record)}
-                >
-                  双语标签
-                </Button>
-                <Button
-                  type="link"
-                  size="small"
-                  onClick={() => void handleOpenSubBoltPacking(record)}
-                >
-                  双语标签拼箱
-                </Button>
-              </>
+              <Button
+                type="link"
+                size="small"
+                onClick={() => void handleOpenBilingualLabelRow(record)}
+              >
+                双语标签
+              </Button>
+            )}
+            {onOpenBilingualPackingLabel && (
+              <Button
+                type="link"
+                size="small"
+                onClick={() => void handleOpenSubBoltPacking(record)}
+              >
+                双语标签拼箱
+              </Button>
             )}
           </Space>
         </Space>
@@ -2388,7 +2390,7 @@ function PickingOrderPage({
           >
             拼箱
           </Button>
-          {onOpenBilingualLabel && (
+          {onOpenBilingualPackingLabel && (
             <Button
               type="primary"
               size="large"
